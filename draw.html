@@ -15,8 +15,10 @@
     --ink:#031a26;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{margin:0;height:100%}
+  html,body{margin:0}
+  html{height:100%}
   body{
+    min-height:100%;
     background:linear-gradient(180deg,var(--shallow) 0%,var(--deep) 45%,var(--abyss) 100%);
     color:var(--sand);
     font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",system-ui,sans-serif;
@@ -56,6 +58,7 @@
   /* ---- キャンバス ---- */
   #stage{
     position:relative;width:100%;max-width:520px;border-radius:18px;overflow:hidden;
+    flex:0 0 auto;
     border:3px solid rgba(143,227,214,.45);
     background:
       repeating-conic-gradient(rgba(255,255,255,.07) 0% 25%, transparent 0% 50%) 50%/16px 16px,
@@ -65,7 +68,7 @@
   #cv{display:block;width:100%;height:auto;touch-action:none}
 
   /* ---- ツールバー ---- */
-  .tools{width:100%;max-width:520px;display:flex;flex-direction:column;gap:10px}
+  .tools{width:100%;max-width:520px;display:flex;flex-direction:column;gap:10px;flex:0 0 auto}
   .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .swatches{display:flex;gap:7px;flex-wrap:wrap;flex:1}
   .sw{
@@ -84,7 +87,7 @@
   .label{font-size:12px;opacity:.7;letter-spacing:.08em;min-width:52px}
 
   /* ---- 送信 ---- */
-  .send{width:100%;max-width:520px;display:flex;flex-direction:column;gap:10px}
+  .send{width:100%;max-width:520px;display:flex;flex-direction:column;gap:10px;flex:0 0 auto}
   #status{font-size:13px;min-height:20px;text-align:center;opacity:.9}
 
   /* ---- 完了画面 ---- */
