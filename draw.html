@@ -122,6 +122,7 @@
 <div class="tools">
   <div class="row">
     <button class="tool on" data-tool="pen">ペン</button>
+    <button class="tool" data-tool="fill">ぬりつぶし</button>
     <button class="tool" data-tool="eraser">消しゴム</button>
     <button class="tool" id="undo">もどす</button>
     <button class="tool" id="redo">やりなおす</button>
@@ -218,14 +219,14 @@ COLORS.forEach((c,i) => {
   b.className = 'sw' + (i===0 ? ' on' : '');
   b.style.background = c;
   b.onclick = () => {
-    color = c; setTool('pen');
+    color = c; if (tool === 'eraser') setTool('pen');
     [...swBox.children].forEach(x => x.classList.remove('on'));
     b.classList.add('on');
   };
   swBox.appendChild(b);
 });
 document.getElementById('custom').oninput = e => {
-  color = e.target.value; setTool('pen');
+  color = e.target.value; if (tool === 'eraser') setTool('pen');
   [...swBox.children].forEach(x => x.classList.remove('on'));
 };
 
@@ -277,8 +278,10 @@ function pos(e){
   return { x:(e.clientX-r.left)*cv.width/r.width, y:(e.clientY-r.top)*cv.height/r.height };
 }
 cv.addEventListener('pointerdown', e => {
+  const p = pos(e);
+  if (tool === 'fill'){ floodFill(Math.round(p.x), Math.round(p.y)); return; }
   cv.setPointerCapture(e.pointerId);
-  snapshot(); drawing = true; last = pos(e); stroke(last, last);
+  snapshot(); drawing = true; last = p; stroke(last, last);
 });
 cv.addEventListener('pointermove', e => {
   if (!drawing) return;
@@ -294,6 +297,87 @@ function stroke(a, b){
   else { ctx.strokeStyle = color; }
   ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
   ctx.restore();
+}
+
+/* ---------- 塗りつぶし ---------- */
+const FILL_TOL = 46;   // 色の許容差（大きいほど広がりやすい）
+
+function hexToRgb(hex){
+  const h = hex.replace('#','');
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+}
+
+function floodFill(sx, sy){
+  const w = cv.width, h = cv.height;
+  if (sx < 0 || sy < 0 || sx >= w || sy >= h) return;
+
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const d = imgData.data;
+  const si = (sy * w + sx) * 4;
+  const tr = d[si], tg = d[si+1], tb = d[si+2], ta = d[si+3];
+  const [fr, fg, fb] = hexToRgb(color);
+
+  // すでに同じ色ならなにもしない
+  if (ta === 255 && Math.abs(tr-fr) < 4 && Math.abs(tg-fg) < 4 && Math.abs(tb-fb) < 4) return;
+
+  const seen = new Uint8Array(w * h);
+  const ok = (x, y) => {
+    const p = y * w + x;
+    if (seen[p]) return false;
+    const i = p * 4;
+    const a = d[i+3];
+    if (ta === 0) return a < 24;                       // 透明部分の塗り
+    if (a === 0) return false;
+    return Math.abs(d[i]-tr) + Math.abs(d[i+1]-tg) + Math.abs(d[i+2]-tb) + Math.abs(a-ta) < FILL_TOL * 3;
+  };
+
+  let touchesEdge = false;
+  const stack = [sy * w + sx];
+  while (stack.length){
+    const p = stack.pop();
+    const y = (p / w) | 0, x = p - y * w;
+    if (!ok(x, y)) continue;
+    let xl = x; while (xl > 0 && ok(xl - 1, y)) xl--;
+    let xr = x; while (xr < w - 1 && ok(xr + 1, y)) xr++;
+    if (xl === 0 || xr === w - 1 || y === 0 || y === h - 1) touchesEdge = true;
+    for (let i = xl; i <= xr; i++){
+      seen[y * w + i] = 1;
+      if (y > 0 && ok(i, y - 1)) stack.push((y - 1) * w + i);
+      if (y < h - 1 && ok(i, y + 1)) stack.push((y + 1) * w + i);
+    }
+  }
+
+  // 背景まるごと塗ろうとしたときの確認
+  if (ta === 0 && touchesEdge){
+    if (!confirm('背景ぜんぶが塗られます。\n配信では四角い板のように見えますが、よろしいですか？')) return;
+  }
+
+  snapshot();
+
+  // 本塗り
+  for (let p = 0; p < w * h; p++){
+    if (!seen[p]) continue;
+    const i = p * 4;
+    d[i] = fr; d[i+1] = fg; d[i+2] = fb; d[i+3] = 255;
+  }
+  // 線のフチに残る隙間を1px分なじませる
+  for (let y = 0; y < h; y++){
+    for (let x = 0; x < w; x++){
+      const p = y * w + x;
+      if (seen[p]) continue;
+      const i = p * 4;
+      if (d[i+3] >= 250) continue;                     // しっかり描かれた線は触らない
+      const near = (x>0 && seen[p-1]) || (x<w-1 && seen[p+1]) ||
+                   (y>0 && seen[p-w]) || (y<h-1 && seen[p+w]);
+      if (!near) continue;
+      const t = 0.65;
+      d[i]   = d[i]   * (1-t) + fr * t;
+      d[i+1] = d[i+1] * (1-t) + fg * t;
+      d[i+2] = d[i+2] * (1-t) + fb * t;
+      d[i+3] = Math.max(d[i+3], 255 * t);
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
 }
 
 /* ---------- 透明部分をトリム＆縮小 ---------- */
