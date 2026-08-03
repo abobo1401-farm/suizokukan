@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>水族館 管理</title>
+<style>
+  :root{
+    --abyss:#04202f; --deep:#0a3a52; --panel:#0d4a63;
+    --foam:#8fe3d6; --sand:#f2e4c9; --coral:#ff7a5c; --ink:#031a26;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:16px 14px 60px;
+    background:linear-gradient(180deg,var(--deep),var(--abyss) 60%);
+    color:var(--sand);font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",system-ui,sans-serif;
+    min-height:100vh;
+  }
+  h1{font-size:20px;letter-spacing:.14em;margin:0 0 4px}
+  .sub{font-size:12px;opacity:.65;margin:0 0 18px}
+
+  .tanks{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+  .tankbtn{
+    border:2px solid rgba(143,227,214,.3);background:rgba(255,255,255,.06);color:var(--sand);
+    border-radius:12px;padding:10px 14px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;gap:2px;min-width:78px;
+  }
+  .tankbtn .cnt{font-size:11px;opacity:.7;font-weight:500}
+  .tankbtn.on{background:var(--foam);color:var(--ink);border-color:var(--foam)}
+  .tankbtn.full{border-color:var(--coral)}
+  .tankbtn.full .cnt{color:var(--coral);opacity:1}
+
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  .btn{
+    border:none;border-radius:11px;padding:10px 16px;font-family:inherit;font-size:13px;font-weight:700;
+    background:rgba(255,255,255,.12);color:var(--sand);cursor:pointer;
+  }
+  .btn.danger{background:var(--coral);color:#2a0a04}
+  .btn:active{transform:translateY(1px)}
+  .url{
+    font-size:11px;opacity:.6;word-break:break-all;background:rgba(0,0,0,.25);
+    padding:8px 10px;border-radius:8px;flex:1;min-width:220px;
+  }
+  .warn{
+    background:rgba(255,122,92,.16);border:2px solid rgba(255,122,92,.55);
+    border-radius:12px;padding:11px 14px;font-size:13px;line-height:1.7;margin-bottom:14px;
+  }
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+  .card{
+    background:rgba(255,255,255,.07);border-radius:14px;padding:10px;
+    display:flex;flex-direction:column;align-items:center;gap:8px;
+  }
+  .card .thumb{
+    width:100%;height:88px;display:flex;align-items:center;justify-content:center;
+    background:repeating-conic-gradient(rgba(255,255,255,.06) 0% 25%,transparent 0% 50%) 50%/12px 12px;
+    border-radius:9px;overflow:hidden;
+  }
+  .card img{max-width:100%;max-height:88px}
+  .card .nm{font-size:13px;font-weight:700;text-align:center;word-break:break-all}
+  .card .tm{font-size:10px;opacity:.5}
+  .card button{
+    width:100%;border:none;border-radius:9px;padding:7px;font-family:inherit;font-size:12px;
+    background:rgba(255,122,92,.85);color:#2a0a04;font-weight:700;cursor:pointer;
+  }
+  .empty{opacity:.5;font-size:13px;padding:30px 0;text-align:center}
+</style>
+</head>
+<body>
+<h1>水族館 管理</h1>
+<p class="sub">水槽ごとに魚を確認・削除できます（1水槽 50匹まで）</p>
+
+<div id="warn" class="warn" style="display:none"></div>
+<div class="tanks" id="tanks"></div>
+
+<div class="bar">
+  <button class="btn danger" id="delTank">この水槽を空にする</button>
+  <button class="btn danger" id="delAll">全水槽を空にする</button>
+  <div class="url" id="obsUrl"></div>
+</div>
+
+<div class="grid" id="grid"></div>
+<div class="empty" id="empty" style="display:none">この水槽にはまだ魚がいません</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, onValue, get, remove }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+/* ============================================================
+   ★★★ draw.html と同じ firebaseConfig を貼り付け ★★★
+   ============================================================ */
+const firebaseConfig = {
+  apiKey: "★ここにAPIキー★",
+  authDomain: "utaoshi-ringo.firebaseapp.com",
+  databaseURL: "https://utaoshi-ringo-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "utaoshi-ringo",
+  storageBucket: "utaoshi-ringo.appspot.com",
+  messagingSenderId: "★★★",
+  appId: "★★★"
+};
+const TANK_LIMIT = 50;
+const SCAN_TANKS = 12;   // 管理画面に並べる水槽の数
+/* ========================================================== */
+
+const app = initializeApp(firebaseConfig);
+const db  = getDatabase(app);
+
+let current = 1;
+const counts = {};
+
+/* ---------- 水槽タブ（index だけ読むので軽い） ---------- */
+for (let t = 1; t <= SCAN_TANKS; t++){
+  onValue(ref(db, `aquarium/tanks/${t}/index`), s => {
+    counts[t] = s.exists() ? Object.keys(s.val()).length : 0;
+    renderTanks();
+  });
+}
+
+function renderTanks(){
+  const box = document.getElementById('tanks');
+  box.innerHTML = '';
+  let lastUsed = 1;
+  for (let t = 1; t <= SCAN_TANKS; t++) if ((counts[t]||0) > 0) lastUsed = t;
+  const show = Math.max(lastUsed + 1, current, 1);
+
+  for (let t = 1; t <= show; t++){
+    const n = counts[t] || 0;
+    const b = document.createElement('button');
+    b.className = 'tankbtn' + (t === current ? ' on' : '') + (n >= TANK_LIMIT ? ' full' : '');
+    b.innerHTML = `水槽${t}<span class="cnt">${n} / ${TANK_LIMIT}${n>=TANK_LIMIT?' 満員':''}</span>`;
+    b.onclick = () => { current = t; renderTanks(); loadFish(); };
+    box.appendChild(b);
+  }
+
+  const w = document.getElementById('warn');
+  const fulls = Object.keys(counts).filter(t => counts[t] >= TANK_LIMIT);
+  if (fulls.length){
+    w.style.display = 'block';
+    w.innerHTML = `⚠️ 水槽${fulls.join('・')} が満員です。新しい魚は次の空き水槽に入ります。<br>`
+      + `OBSのブラウザソースを <b>水槽${Math.max(...fulls.map(Number))+1}</b> のURLに切り替えてください。`;
+  } else {
+    w.style.display = 'none';
+  }
+  document.getElementById('obsUrl').textContent =
+    `OBS用URL：${location.href.replace(/admin\.html.*$/, '')}display.html?tank=${current}`;
+}
+
+/* ---------- 魚一覧 ---------- */
+let unsub = null;
+function loadFish(){
+  if (unsub) unsub();
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '<div class="empty">読み込み中…</div>';
+  unsub = onValue(ref(db, `aquarium/tanks/${current}/fish`), s => {
+    grid.innerHTML = '';
+    const val = s.exists() ? s.val() : {};
+    const ids = Object.keys(val).sort((a,b) => (val[b].ts||0) - (val[a].ts||0));
+    document.getElementById('empty').style.display = ids.length ? 'none' : 'block';
+
+    for (const id of ids){
+      const f = val[id];
+      const card = document.createElement('div');
+      card.className = 'card';
+      const d = f.ts ? new Date(f.ts) : null;
+      card.innerHTML = `
+        <div class="thumb"><img src="${f.img}" alt=""></div>
+        <div class="nm">${escapeHtml(f.name || '(なまえなし)')}</div>
+        <div class="tm">${d ? `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` : ''}</div>
+        <button>削除</button>`;
+      card.querySelector('button').onclick = async () => {
+        if (!confirm(`「${f.name}」を水槽から出しますか？`)) return;
+        await remove(ref(db, `aquarium/tanks/${current}/fish/${id}`));
+        await remove(ref(db, `aquarium/tanks/${current}/index/${id}`));
+      };
+      grid.appendChild(card);
+    }
+  });
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ---------- 一括削除 ---------- */
+document.getElementById('delTank').onclick = async () => {
+  if (!confirm(`水槽${current} の魚を全部出しますか？`)) return;
+  await remove(ref(db, `aquarium/tanks/${current}`));
+};
+document.getElementById('delAll').onclick = async () => {
+  if (!confirm('すべての水槽を空にします。よろしいですか？')) return;
+  if (!confirm('本当に全部消します。もう戻せません。')) return;
+  await remove(ref(db, 'aquarium/tanks'));
+};
+
+renderTanks();
+loadFish();
+</script>
+</body>
+</html>

@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>水族館に魚をはなつ</title>
+<style>
+  :root{
+    --abyss:#04202f;
+    --deep:#0a3a52;
+    --shallow:#12657f;
+    --foam:#8fe3d6;
+    --sand:#f2e4c9;
+    --coral:#ff7a5c;
+    --ink:#031a26;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{
+    background:linear-gradient(180deg,var(--shallow) 0%,var(--deep) 45%,var(--abyss) 100%);
+    color:var(--sand);
+    font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",system-ui,sans-serif;
+    display:flex;flex-direction:column;align-items:center;
+    padding:14px 12px 28px;gap:12px;overflow-x:hidden;
+  }
+  h1{
+    font-size:19px;margin:2px 0 0;letter-spacing:.14em;font-weight:800;
+    text-shadow:0 2px 0 rgba(0,0,0,.3);
+  }
+  .sub{font-size:12px;opacity:.75;margin:0;letter-spacing:.05em}
+
+  /* ---- 合言葉ゲート ---- */
+  #gate{
+    position:fixed;inset:0;z-index:50;
+    background:linear-gradient(180deg,var(--deep),var(--abyss));
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;
+  }
+  #gate h2{font-size:22px;margin:0;letter-spacing:.2em}
+  #gate p{font-size:13px;opacity:.7;margin:0;text-align:center;line-height:1.7}
+  .field{
+    width:100%;max-width:320px;padding:14px 16px;border-radius:14px;border:2px solid rgba(143,227,214,.35);
+    background:rgba(0,0,0,.25);color:var(--sand);font-size:17px;text-align:center;font-family:inherit;
+  }
+  .field:focus{outline:none;border-color:var(--foam)}
+  .btn{
+    border:none;border-radius:14px;padding:14px 26px;font-size:16px;font-weight:800;font-family:inherit;
+    background:var(--foam);color:var(--ink);letter-spacing:.08em;
+    box-shadow:0 4px 0 rgba(0,0,0,.35);transition:transform .08s,box-shadow .08s;
+  }
+  .btn:active{transform:translateY(3px);box-shadow:0 1px 0 rgba(0,0,0,.35)}
+  .btn[disabled]{opacity:.45}
+  .btn.ghost{background:rgba(255,255,255,.12);color:var(--sand);box-shadow:0 4px 0 rgba(0,0,0,.25)}
+  .btn.coral{background:var(--coral);color:#2a0a04}
+  .err{color:#ffb3a3;font-size:13px;min-height:18px}
+
+  /* ---- キャンバス ---- */
+  #stage{
+    position:relative;width:100%;max-width:520px;border-radius:18px;overflow:hidden;
+    border:3px solid rgba(143,227,214,.45);
+    background:
+      repeating-conic-gradient(rgba(255,255,255,.07) 0% 25%, transparent 0% 50%) 50%/16px 16px,
+      rgba(4,32,47,.65);
+    box-shadow:0 10px 30px rgba(0,0,0,.4);
+  }
+  #cv{display:block;width:100%;height:auto;touch-action:none}
+
+  /* ---- ツールバー ---- */
+  .tools{width:100%;max-width:520px;display:flex;flex-direction:column;gap:10px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .swatches{display:flex;gap:7px;flex-wrap:wrap;flex:1}
+  .sw{
+    width:34px;height:34px;border-radius:50%;border:2px solid rgba(255,255,255,.35);
+    padding:0;flex:0 0 auto;
+  }
+  .sw.on{border-color:#fff;box-shadow:0 0 0 3px rgba(255,255,255,.3)}
+  .tool{
+    flex:1;min-width:64px;border:none;border-radius:12px;padding:11px 6px;font-size:13px;font-weight:700;
+    font-family:inherit;background:rgba(255,255,255,.12);color:var(--sand);
+  }
+  .tool.on{background:var(--foam);color:var(--ink)}
+  .tool .hint{font-size:10px;font-weight:500;opacity:.65}
+  .tool.motion{line-height:1.5;padding:8px 4px}
+  input[type=range]{flex:1;accent-color:var(--foam)}
+  .label{font-size:12px;opacity:.7;letter-spacing:.08em;min-width:52px}
+
+  /* ---- 送信 ---- */
+  .send{width:100%;max-width:520px;display:flex;flex-direction:column;gap:10px}
+  #status{font-size:13px;min-height:20px;text-align:center;opacity:.9}
+
+  /* ---- 完了画面 ---- */
+  #done{
+    position:fixed;inset:0;z-index:60;display:none;
+    background:linear-gradient(180deg,rgba(18,101,127,.97),rgba(4,32,47,.99));
+    flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:28px;text-align:center;
+  }
+  #done.show{display:flex}
+  #done h2{margin:0;font-size:24px;letter-spacing:.1em}
+  #done .fishname{color:var(--foam);font-size:19px;font-weight:800}
+  #done img{width:200px;max-width:70vw;filter:drop-shadow(0 6px 14px rgba(0,0,0,.5))}
+  .notice{
+    background:rgba(255,122,92,.18);border:2px solid rgba(255,122,92,.6);border-radius:14px;
+    padding:12px 16px;font-size:13px;line-height:1.7;max-width:360px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ================= 合言葉ゲート ================= -->
+<div id="gate">
+  <h2>あいことば</h2>
+  <p>配信で伝えられたあいことばを<br>入力してください</p>
+  <input id="pass" class="field" type="text" placeholder="あいことば" autocomplete="off">
+  <button id="passBtn" class="btn">水族館に入る</button>
+  <div id="passErr" class="err"></div>
+</div>
+
+<h1>さかなを描く</h1>
+<p class="sub">描いた魚が配信の水槽を泳ぎます</p>
+
+<div id="stage"><canvas id="cv" width="600" height="420"></canvas></div>
+
+<div class="tools">
+  <div class="row">
+    <button class="tool on" data-tool="pen">ペン</button>
+    <button class="tool" data-tool="eraser">消しゴム</button>
+    <button class="tool" id="undo">もどす</button>
+    <button class="tool" id="redo">やりなおす</button>
+    <button class="tool" id="clear">全消し</button>
+  </div>
+  <div class="row">
+    <span class="label">ふとさ</span>
+    <input id="size" type="range" min="2" max="48" value="10">
+    <span id="sizeVal" class="label" style="text-align:right">10</span>
+  </div>
+  <div class="row">
+    <div class="swatches" id="swatches"></div>
+    <input id="custom" type="color" value="#ff7a5c" style="width:34px;height:34px;border:none;background:none;padding:0">
+  </div>
+</div>
+
+<div class="tools">
+  <div class="row">
+    <span class="label">うごき</span>
+    <button class="tool motion" data-motion="fuwa">フワフワ<br><span class="hint">クラゲなど</span></button>
+    <button class="tool motion on" data-motion="swim">スイスイ<br><span class="hint">さかななど</span></button>
+    <button class="tool motion" data-motion="toko">トコトコ<br><span class="hint">カニなど</span></button>
+  </div>
+  <div class="row">
+    <span class="label">おおきさ</span>
+    <button class="tool sizepick" data-size="l">大</button>
+    <button class="tool sizepick on" data-size="m">中</button>
+    <button class="tool sizepick" data-size="s">小</button>
+  </div>
+</div>
+
+<div class="send">
+  <input id="name" class="field" type="text" maxlength="12" placeholder="なまえ（12文字まで）">
+  <button id="submit" class="btn coral">水族館にはなつ</button>
+  <div id="status"></div>
+</div>
+
+<!-- ================= 完了画面 ================= -->
+<div id="done">
+  <img id="doneImg" alt="">
+  <h2><span id="doneName" class="fishname"></span> が<br>泳ぎだしました</h2>
+  <div id="doneNotice" class="notice" style="display:none"></div>
+  <button id="again" class="btn ghost">もう一匹描く</button>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, push, set, get }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+/* ============================================================
+   ★★★ ここだけ書き換える ★★★
+   お絵かきlive／七夕システムと同じ firebaseConfig を貼り付け
+   ============================================================ */
+const firebaseConfig = {
+  apiKey: "★ここにAPIキー★",
+  authDomain: "utaoshi-ringo.firebaseapp.com",
+  databaseURL: "https://utaoshi-ringo-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "utaoshi-ringo",
+  storageBucket: "utaoshi-ringo.appspot.com",
+  messagingSenderId: "★★★",
+  appId: "★★★"
+};
+const PASSPHRASES = ["さかな"];   // 複数可 ["さかな","うみ"]
+const TANK_LIMIT  = 50;           // 1水槽あたりの上限
+const MAX_TANKS   = 99;
+/* ========================================================== */
+
+const app = initializeApp(firebaseConfig);
+const db  = getDatabase(app);
+
+/* ---------- 合言葉 ---------- */
+const gate = document.getElementById('gate');
+document.getElementById('passBtn').onclick = () => {
+  const v = document.getElementById('pass').value.trim();
+  if (PASSPHRASES.includes(v)) { gate.style.display = 'none'; }
+  else { document.getElementById('passErr').textContent = 'あいことばが違います'; }
+};
+document.getElementById('pass').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('passBtn').click();
+});
+
+/* ---------- キャンバス ---------- */
+const cv  = document.getElementById('cv');
+const ctx = cv.getContext('2d', { willReadFrequently: true });
+let tool = 'pen', color = '#ff7a5c', size = 10, drawing = false, last = null;
+const undoStack = [], redoStack = [], MAX_HISTORY = 25;
+
+const COLORS = ['#ff7a5c','#ffd166','#8fe3d6','#4fc3f7','#7e6bff','#ff8fd0',
+                '#7ddf64','#ffffff','#111111','#c98a4b','#e0e0e0','#ff3b30'];
+const swBox = document.getElementById('swatches');
+COLORS.forEach((c,i) => {
+  const b = document.createElement('button');
+  b.className = 'sw' + (i===0 ? ' on' : '');
+  b.style.background = c;
+  b.onclick = () => {
+    color = c; setTool('pen');
+    [...swBox.children].forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+  };
+  swBox.appendChild(b);
+});
+document.getElementById('custom').oninput = e => {
+  color = e.target.value; setTool('pen');
+  [...swBox.children].forEach(x => x.classList.remove('on'));
+};
+
+function setTool(t){
+  tool = t;
+  document.querySelectorAll('.tool[data-tool]').forEach(b =>
+    b.classList.toggle('on', b.dataset.tool === t));
+}
+document.querySelectorAll('.tool[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
+
+/* ---------- 動き・大きさ ---------- */
+let motion = 'swim', fishSize = 'm';
+const MOTION_SPEED = { fuwa:[7,16],   swim:[22,46],   toko:[13,28] };  // px/秒（1080p基準）
+const MOTION_YBAND = { fuwa:[.08,.58], swim:[.12,.78], toko:[.76,.91] };
+
+document.querySelectorAll('.tool.motion').forEach(b => b.onclick = () => {
+  motion = b.dataset.motion;
+  document.querySelectorAll('.tool.motion').forEach(x => x.classList.toggle('on', x === b));
+});
+document.querySelectorAll('.tool.sizepick').forEach(b => b.onclick = () => {
+  fishSize = b.dataset.size;
+  document.querySelectorAll('.tool.sizepick').forEach(x => x.classList.toggle('on', x === b));
+});
+
+const sizeEl = document.getElementById('size');
+sizeEl.oninput = () => { size = +sizeEl.value; document.getElementById('sizeVal').textContent = size; };
+
+function snapshot(){
+  undoStack.push(ctx.getImageData(0,0,cv.width,cv.height));
+  if (undoStack.length > MAX_HISTORY) undoStack.shift();
+  redoStack.length = 0;
+}
+document.getElementById('undo').onclick = () => {
+  if (!undoStack.length) return;
+  redoStack.push(ctx.getImageData(0,0,cv.width,cv.height));
+  ctx.putImageData(undoStack.pop(), 0, 0);
+};
+document.getElementById('redo').onclick = () => {
+  if (!redoStack.length) return;
+  undoStack.push(ctx.getImageData(0,0,cv.width,cv.height));
+  ctx.putImageData(redoStack.pop(), 0, 0);
+};
+document.getElementById('clear').onclick = () => {
+  snapshot(); ctx.clearRect(0,0,cv.width,cv.height);
+};
+
+function pos(e){
+  const r = cv.getBoundingClientRect();
+  return { x:(e.clientX-r.left)*cv.width/r.width, y:(e.clientY-r.top)*cv.height/r.height };
+}
+cv.addEventListener('pointerdown', e => {
+  cv.setPointerCapture(e.pointerId);
+  snapshot(); drawing = true; last = pos(e); stroke(last, last);
+});
+cv.addEventListener('pointermove', e => {
+  if (!drawing) return;
+  const p = pos(e); stroke(last, p); last = p;
+});
+['pointerup','pointercancel','pointerleave'].forEach(ev =>
+  cv.addEventListener(ev, () => { drawing = false; }));
+
+function stroke(a, b){
+  ctx.save();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = size;
+  if (tool === 'eraser') { ctx.globalCompositeOperation = 'destination-out'; ctx.strokeStyle = '#000'; }
+  else { ctx.strokeStyle = color; }
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  ctx.restore();
+}
+
+/* ---------- 透明部分をトリム＆縮小 ---------- */
+function buildFishImage(){
+  const w = cv.width, h = cv.height;
+  const d = ctx.getImageData(0,0,w,h).data;
+  let minX=w, minY=h, maxX=-1, maxY=-1;
+  for (let y=0; y<h; y++) for (let x=0; x<w; x++){
+    if (d[(y*w+x)*4+3] > 8){
+      if (x<minX) minX=x; if (x>maxX) maxX=x;
+      if (y<minY) minY=y; if (y>maxY) maxY=y;
+    }
+  }
+  if (maxX < 0) return null;                    // 何も描かれていない
+  const pad = 4;
+  minX = Math.max(0,minX-pad); minY = Math.max(0,minY-pad);
+  maxX = Math.min(w-1,maxX+pad); maxY = Math.min(h-1,maxY+pad);
+  const cw = maxX-minX+1, ch = maxY-minY+1;
+
+  const MAXW = 240, MAXH = 200;
+  const scale = Math.min(1, MAXW/cw, MAXH/ch);
+  const out = document.createElement('canvas');
+  out.width = Math.max(1, Math.round(cw*scale));
+  out.height = Math.max(1, Math.round(ch*scale));
+  const octx = out.getContext('2d');
+  octx.imageSmoothingQuality = 'high';
+  octx.drawImage(cv, minX, minY, cw, ch, 0, 0, out.width, out.height);
+  return out.toDataURL('image/png');
+}
+
+/* ---------- 空いている水槽をさがす ---------- */
+async function findTank(){
+  for (let t=1; t<=MAX_TANKS; t++){
+    const snap = await get(ref(db, `aquarium/tanks/${t}/index`));
+    const n = snap.exists() ? Object.keys(snap.val()).length : 0;
+    if (n < TANK_LIMIT) return { tank:t, count:n };
+  }
+  return null;
+}
+
+/* ---------- 送信 ---------- */
+const statusEl = document.getElementById('status');
+const submitBtn = document.getElementById('submit');
+submitBtn.onclick = async () => {
+  const name = document.getElementById('name').value.trim();
+  if (!name){ statusEl.textContent = 'なまえを入力してください'; return; }
+  const img = buildFishImage();
+  if (!img){ statusEl.textContent = 'まだ何も描かれていません'; return; }
+
+  submitBtn.disabled = true;
+  statusEl.textContent = '送信中…';
+  try{
+    const slot = await findTank();
+    if (!slot) throw new Error('水槽がすべて満員です');
+
+    const [y0, y1] = MOTION_YBAND[motion];
+    const [s0, s1] = MOTION_SPEED[motion];
+    const fish = {
+      name,
+      img,
+      motion,                                  // fuwa / swim / toko
+      size: fishSize,                          // s / m / l
+      y: y0 + Math.random() * (y1 - y0),       // 縦位置（比率）
+      speed: s0 + Math.random() * (s1 - s0),   // px/秒（1080p基準）
+      dir: Math.random() < .5 ? -1 : 1,
+      scale: 0.88 + Math.random() * 0.24,      // 奥行きのゆらぎ
+      ts: Date.now()
+    };
+    const fishRef = push(ref(db, `aquarium/tanks/${slot.tank}/fish`));
+    await set(fishRef, fish);
+    await set(ref(db, `aquarium/tanks/${slot.tank}/index/${fishRef.key}`), fish.ts);
+
+    document.getElementById('doneImg').src = img;
+    document.getElementById('doneName').textContent = name;
+    const notice = document.getElementById('doneNotice');
+    if (slot.tank > 1){
+      notice.style.display = 'block';
+      notice.innerHTML = `水槽${slot.tank-1}が満員だったので、<b>水槽${slot.tank}</b>に入りました。<br>配信の画面が切り替わるまで少し待ってね。`;
+    } else {
+      notice.style.display = 'none';
+    }
+    if (slot.count + 1 >= TANK_LIMIT){
+      notice.style.display = 'block';
+      notice.innerHTML += `<br>この水槽はこれで満員（${TANK_LIMIT}匹）です。`;
+    }
+    document.getElementById('done').classList.add('show');
+    statusEl.textContent = '';
+  }catch(err){
+    console.error(err);
+    statusEl.textContent = '送信できませんでした：' + err.message;
+  }finally{
+    submitBtn.disabled = false;
+  }
+};
+
+document.getElementById('again').onclick = () => {
+  document.getElementById('done').classList.remove('show');
+  ctx.clearRect(0,0,cv.width,cv.height);
+  undoStack.length = 0; redoStack.length = 0;
+  document.getElementById('name').value = '';
+};
+</script>
+</body>
+</html>
