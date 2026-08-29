@@ -77,31 +77,67 @@
   }
   .baitbtn:hover{border-color:var(--foam)}
   .baitbtn img{height:44px;width:auto}
+  .baitbtn em{font-style:normal;font-size:10px;font-weight:500;opacity:.6}
   #baitMsg{font-size:12px;margin-top:10px;min-height:16px;color:var(--foam)}
+  .baitbtn.on{border-color:var(--foam);background:rgba(143,227,214,.15)}
+  .baitbtn .del{
+    font-size:10px;opacity:.5;background:none;border:none;color:var(--sand);
+    padding:0;width:auto;cursor:pointer;
+  }
+  .upload{
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;
+    padding-top:12px;border-top:1px solid rgba(255,255,255,.1);
+  }
+  .upload label{
+    font-size:12px;font-weight:700;background:rgba(255,255,255,.12);color:var(--sand);
+    padding:9px 14px;border-radius:10px;cursor:pointer;
+  }
+  .upload span{font-size:11px;opacity:.55}
+  .target{
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    margin-bottom:10px;font-size:12px;
+  }
+  .target select{
+    flex:1;min-width:150px;padding:9px 10px;border-radius:10px;font-family:inherit;font-size:13px;
+    background:rgba(0,0,0,.3);color:var(--sand);border:2px solid rgba(143,227,214,.3);
+  }
+  .card .grw{font-size:10px;color:var(--foam);font-weight:700}
+  .card .btns{display:flex;gap:5px;width:100%}
+  .card .btns button{flex:1}
+  .card button.rst{background:rgba(255,255,255,.16);color:var(--sand)}
   .empty{opacity:.5;font-size:13px;padding:30px 0;text-align:center}
 </style>
 </head>
 <body>
 <h1>水族館 管理</h1>
-<p class="sub">水槽ごとに魚を確認・削除できます（1水槽 50匹まで）</p>
+<p class="sub">水槽は5個。1水槽あたり50匹まで（合計250匹）</p>
 
 <div id="warn" class="warn" style="display:none"></div>
 <div class="tanks" id="tanks"></div>
 
 <div class="bar">
   <button class="btn danger" id="delTank">この水槽を空にする</button>
+  <button class="btn" id="resetGrow">この水槽の大きさを全部もどす</button>
   <button class="btn danger" id="delAll">全水槽を空にする</button>
   <div class="url" id="obsUrl"></div>
 </div>
 
 <div class="baitbox">
   <h2>エサをあげる</h2>
-  <p>選んだエサが水槽に落ちて、約18秒かけて沈みます。その間だけ魚が群がります。</p>
+  <p>エサをあげる魚を選んでから、エサを押してください。食べると一回り大きくなります。</p>
+  <div class="target">
+    <span class="label">あげる相手</span>
+    <select id="targetSel"><option value="">みんな（群がるだけ・成長なし）</option></select>
+  </div>
   <div class="baits">
-    <button class="baitbtn" data-bait="apple"><img data-b="apple" alt="">りんご</button>
-    <button class="baitbtn" data-bait="meat"><img data-b="meat" alt="">おにく</button>
-    <button class="baitbtn" data-bait="worm"><img data-b="worm" alt="">ミミズ</button>
+    <button class="baitbtn" data-bait="worm"><img data-b="worm" alt=""><span>ミミズ</span><em>さかな用</em></button>
+    <button class="baitbtn" data-bait="apple"><img data-b="apple" alt=""><span>りんご</span><em>クラゲ用</em></button>
+    <button class="baitbtn" data-bait="meat"><img data-b="meat" alt=""><span>おにく</span><em>カニ用</em></button>
     <button class="baitbtn" id="baitStop" style="min-width:70px">✕<br>ひきあげる</button>
+  </div>
+  <div class="upload">
+    <label>エサ画像を登録<input id="baitFile" type="file" accept="image/*" hidden></label>
+    <span>PNG推奨（透過対応）。自動で縮小されます</span>
   </div>
   <div id="baitMsg"></div>
 </div>
@@ -127,7 +163,7 @@ const firebaseConfig = {
   appId: "★★★"
 };
 const TANK_LIMIT = 50;
-const SCAN_TANKS = 12;   // 管理画面に並べる水槽の数
+const SCAN_TANKS = 5;    // 水槽の数
 /* ========================================================== */
 
 const app = initializeApp(firebaseConfig);
@@ -139,6 +175,7 @@ const BAIT_IMG = {
   worm:  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMTEyIiB2aWV3Qm94PSIwIDAgMjAwIDExMiI+CjxwYXRoIGQ9Ik0yNiA3MiBDIDQ2IDI2LCA4NiAyNCwgMTA0IDYyIFMgMTU4IDk2LCAxNzggNTIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzhmNGE1YyIgc3Ryb2tlLXdpZHRoPSIzMCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+CjxwYXRoIGQ9Ik0yNiA3MiBDIDQ2IDI2LCA4NiAyNCwgMTA0IDYyIFMgMTU4IDk2LCAxNzggNTIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2YyYThiNiIgc3Ryb2tlLXdpZHRoPSIyMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjxwYXRoIGQ9Ik0yNiA3MiBDIDQ2IDI2LCA4NiAyNCwgMTA0IDYyIFMgMTU4IDk2LCAxNzggNTIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2M5Nzg4YyIgc3Ryb2tlLXdpZHRoPSIyMyIgc3Ryb2tlLWxpbmVjYXA9ImJ1dHQiIHN0cm9rZS1kYXNoYXJyYXk9IjIgMTUiIG9wYWNpdHk9IjAuNTUiLz4KPHBhdGggZD0iTTMwIDY2IEMgNDggMzAsIDg0IDMwLCAxMDAgNTgiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZDZkZSIgc3Ryb2tlLXdpZHRoPSI2IiBzdHJva2UtbGluZWNhcD0icm91bmQiIG9wYWNpdHk9IjAuOCIvPgo8Y2lyY2xlIGN4PSIxOSIgY3k9IjY2IiByPSI1LjIiIGZpbGw9IiNmZmYiIHN0cm9rZT0iIzhmNGE1YyIgc3Ryb2tlLXdpZHRoPSIyIi8+CjxjaXJjbGUgY3g9IjMyIiBjeT0iNjAiIHI9IjUuMiIgZmlsbD0iI2ZmZiIgc3Ryb2tlPSIjOGY0YTVjIiBzdHJva2Utd2lkdGg9IjIiLz4KPGNpcmNsZSBjeD0iMTgiIGN5PSI2NyIgcj0iMi40IiBmaWxsPSIjM2ExZDI0Ii8+CjxjaXJjbGUgY3g9IjMxIiBjeT0iNjEiIHI9IjIuNCIgZmlsbD0iIzNhMWQyNCIvPgo8L3N2Zz4="
 };
 document.querySelectorAll('.baitbtn img').forEach(i => { i.src = BAIT_IMG[i.dataset.b]; });
+let customBaits = {};
 
 let current = 1;
 const counts = {};
@@ -154,11 +191,7 @@ for (let t = 1; t <= SCAN_TANKS; t++){
 function renderTanks(){
   const box = document.getElementById('tanks');
   box.innerHTML = '';
-  let lastUsed = 1;
-  for (let t = 1; t <= SCAN_TANKS; t++) if ((counts[t]||0) > 0) lastUsed = t;
-  const show = Math.max(lastUsed + 1, current, 1);
-
-  for (let t = 1; t <= show; t++){
+  for (let t = 1; t <= SCAN_TANKS; t++){
     const n = counts[t] || 0;
     const b = document.createElement('button');
     b.className = 'tankbtn' + (t === current ? ' on' : '') + (n >= TANK_LIMIT ? ' full' : '');
@@ -171,8 +204,10 @@ function renderTanks(){
   const fulls = Object.keys(counts).filter(t => counts[t] >= TANK_LIMIT);
   if (fulls.length){
     w.style.display = 'block';
-    w.innerHTML = `⚠️ 水槽${fulls.join('・')} が満員です。新しい魚は次の空き水槽に入ります。<br>`
-      + `OBSのブラウザソースを <b>水槽${Math.max(...fulls.map(Number))+1}</b> のURLに切り替えてください。`;
+    const next = [1,2,3,4,5].find(t => (counts[t]||0) < TANK_LIMIT);
+    w.innerHTML = next
+      ? `⚠️ 水槽${fulls.join('・')} が満員です。新しい魚は <b>水槽${next}</b> に入ります。`
+      : `⚠️ 水槽${SCAN_TANKS}個すべてが満員です。どれかを空けないと新しい魚を受け付けられません。`;
   } else {
     w.style.display = 'none';
   }
@@ -192,20 +227,42 @@ function loadFish(){
     const ids = Object.keys(val).sort((a,b) => (val[b].ts||0) - (val[a].ts||0));
     document.getElementById('empty').style.display = ids.length ? 'none' : 'block';
 
+    // あげる相手のリストを更新
+    const keep = targetSel.value;
+    targetSel.innerHTML = '<option value="">みんな（群がるだけ・成長なし）</option>';
     for (const id of ids){
       const f = val[id];
+      const g = f.grow ?? 1;
+      const o = document.createElement('option');
+      o.value = id;
+      o.textContent = (f.name || '(なまえなし)') + (g > 1.01 ? ` ×${g.toFixed(1)}` : '');
+      targetSel.appendChild(o);
+    }
+    targetSel.value = keep && ids.includes(keep) ? keep : '';
+
+    for (const id of ids){
+      const f = val[id];
+      const g = f.grow ?? 1;
       const card = document.createElement('div');
       card.className = 'card';
       const d = f.ts ? new Date(f.ts) : null;
       card.innerHTML = `
         <div class="thumb"><img src="${f.img}" alt=""></div>
         <div class="nm">${escapeHtml(f.name || '(なまえなし)')}</div>
+        ${g > 1.01 ? `<div class="grw">おおきさ ×${g.toFixed(2)}</div>` : ''}
         <div class="tm">${d ? `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` : ''}</div>
-        <button>削除</button>`;
-      card.querySelector('button').onclick = async () => {
+        <div class="btns">
+          ${g > 1.01 ? '<button class="rst">もどす</button>' : ''}
+          <button class="del2">削除</button>
+        </div>`;
+      card.querySelector('.del2').onclick = async () => {
         if (!confirm(`「${f.name}」を水槽から出しますか？`)) return;
         await remove(ref(db, `aquarium/tanks/${current}/fish/${id}`));
         await remove(ref(db, `aquarium/tanks/${current}/index/${id}`));
+      };
+      const rst = card.querySelector('.rst');
+      if (rst) rst.onclick = async () => {
+        await set(ref(db, `aquarium/tanks/${current}/fish/${id}/grow`), 1);
       };
       grid.appendChild(card);
     }
@@ -221,6 +278,14 @@ document.getElementById('delTank').onclick = async () => {
   if (!confirm(`水槽${current} の魚を全部出しますか？`)) return;
   await remove(ref(db, `aquarium/tanks/${current}`));
 };
+document.getElementById('resetGrow').onclick = async () => {
+  const snap = await get(ref(db, `aquarium/tanks/${current}/fish`));
+  if (!snap.exists()) return;
+  const ids = Object.keys(snap.val());
+  if (!confirm(`水槽${current} の魚 ${ids.length}匹 の大きさを元に戻しますか？`)) return;
+  await Promise.all(ids.map(id =>
+    set(ref(db, `aquarium/tanks/${current}/fish/${id}/grow`), 1)));
+};
 document.getElementById('delAll').onclick = async () => {
   if (!confirm('すべての水槽を空にします。よろしいですか？')) return;
   if (!confirm('本当に全部消します。もう戻せません。')) return;
@@ -229,15 +294,94 @@ document.getElementById('delAll').onclick = async () => {
 
 /* ---------- エサ ---------- */
 const baitMsg = document.getElementById('baitMsg');
-document.querySelectorAll('.baitbtn[data-bait]').forEach(b => b.onclick = async () => {
-  const label = b.textContent.trim();
-  await set(ref(db, `aquarium/tanks/${current}/bait`), {
-    type: b.dataset.bait,
-    x: 0.22 + Math.random() * 0.56,
-    ts: Date.now()
-  });
-  baitMsg.textContent = `水槽${current}に${label}を落としました`;
+const targetSel = document.getElementById('targetSel');
+
+async function dropBait(type, label, img){
+  const forId = targetSel.value || null;
+  const payload = { type, x: 0.22 + Math.random() * 0.56, ts: Date.now() };
+  if (forId) payload.forId = forId;
+  if (img) payload.img = img;
+  await set(ref(db, `aquarium/tanks/${current}/bait`), payload);
+  const who = forId ? targetSel.options[targetSel.selectedIndex].text : 'みんな';
+  baitMsg.textContent = `${who} に ${label} を落としました`;
   setTimeout(() => { baitMsg.textContent = ''; }, 4000);
+}
+
+function bindBaitButtons(){
+  document.querySelectorAll('.baitbtn[data-bait]').forEach(b => b.onclick = () => {
+    const key = b.dataset.bait;
+    const label = b.querySelector('span').textContent;
+    dropBait(key, label, customBaits[key]?.img);
+  });
+}
+bindBaitButtons();
+
+/* ---------- エサ画像の登録 ---------- */
+document.getElementById('baitFile').onchange = async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = '';
+  baitMsg.textContent = '画像を処理中…';
+  try{
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i); i.onerror = rej;
+      i.src = URL.createObjectURL(file);
+    });
+    // 透明部分をトリム
+    const c = document.createElement('canvas');
+    c.width = img.width; c.height = img.height;
+    const cx = c.getContext('2d', { willReadFrequently:true });
+    cx.drawImage(img, 0, 0);
+    const d = cx.getImageData(0,0,c.width,c.height).data;
+    let x0=c.width, y0=c.height, x1=-1, y1=-1;
+    for (let y=0;y<c.height;y++) for (let x=0;x<c.width;x++){
+      if (d[(y*c.width+x)*4+3] > 8){
+        if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y;
+      }
+    }
+    if (x1 < 0){ x0=0; y0=0; x1=c.width-1; y1=c.height-1; }
+    const cw = x1-x0+1, ch = y1-y0+1;
+    const sc = Math.min(1, 190/cw, 190/ch);
+    const o = document.createElement('canvas');
+    o.width = Math.max(1, Math.round(cw*sc));
+    o.height = Math.max(1, Math.round(ch*sc));
+    const octx = o.getContext('2d');
+    octx.imageSmoothingQuality = 'high';
+    octx.drawImage(c, x0, y0, cw, ch, 0, 0, o.width, o.height);
+    const dataUrl = o.toDataURL('image/png');
+
+    const name = (prompt('エサの名前は？', file.name.replace(/\.[^.]+$/, '')) || 'エサ').slice(0, 8);
+    const key = 'c' + Date.now();
+    await set(ref(db, `aquarium/baits/${key}`), { name, img: dataUrl, ts: Date.now() });
+    baitMsg.textContent = `「${name}」を登録しました`;
+    setTimeout(() => { baitMsg.textContent = ''; }, 4000);
+  }catch(err){
+    console.error(err);
+    baitMsg.textContent = '画像を読み込めませんでした';
+  }
+};
+
+/* ---------- 登録済みエサの一覧 ---------- */
+onValue(ref(db, 'aquarium/baits'), s => {
+  customBaits = s.val() || {};
+  document.querySelectorAll('.baitbtn.custom').forEach(b => b.remove());
+  const box = document.querySelector('.baits');
+  const stop = document.getElementById('baitStop');
+  for (const [key, v] of Object.entries(customBaits)){
+    const b = document.createElement('button');
+    b.className = 'baitbtn custom';
+    b.dataset.bait = key;
+    b.innerHTML = `<img src="${v.img}" alt=""><span>${escapeHtml(v.name)}</span>
+                   <button class="del">削除</button>`;
+    b.querySelector('.del').onclick = async ev => {
+      ev.stopPropagation();
+      if (!confirm(`エサ「${v.name}」を削除しますか？`)) return;
+      await remove(ref(db, `aquarium/baits/${key}`));
+    };
+    box.insertBefore(b, stop);
+  }
+  bindBaitButtons();
 });
 document.getElementById('baitStop').onclick = async () => {
   await remove(ref(db, `aquarium/tanks/${current}/bait`));

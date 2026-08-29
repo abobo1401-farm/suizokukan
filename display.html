@@ -13,7 +13,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getDatabase, ref, onChildAdded, onChildRemoved, onValue, get, remove }
+import { getDatabase, ref, onChildAdded, onChildRemoved, onValue, get, set, remove }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 /* ============================================================
@@ -51,36 +51,117 @@ const BAIT_IMG = {
   worm:  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMTEyIiB2aWV3Qm94PSIwIDAgMjAwIDExMiI+CjxwYXRoIGQ9Ik0yNiA3MiBDIDQ2IDI2LCA4NiAyNCwgMTA0IDYyIFMgMTU4IDk2LCAxNzggNTIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzhmNGE1YyIgc3Ryb2tlLXdpZHRoPSIzMCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+CjxwYXRoIGQ9Ik0yNiA3MiBDIDQ2IDI2LCA4NiAyNCwgMTA0IDYyIFMgMTU4IDk2LCAxNzggNTIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2YyYThiNiIgc3Ryb2tlLXdpZHRoPSIyMyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjxwYXRoIGQ9Ik0yNiA3MiBDIDQ2IDI2LCA4NiAyNCwgMTA0IDYyIFMgMTU4IDk2LCAxNzggNTIiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2M5Nzg4YyIgc3Ryb2tlLXdpZHRoPSIyMyIgc3Ryb2tlLWxpbmVjYXA9ImJ1dHQiIHN0cm9rZS1kYXNoYXJyYXk9IjIgMTUiIG9wYWNpdHk9IjAuNTUiLz4KPHBhdGggZD0iTTMwIDY2IEMgNDggMzAsIDg0IDMwLCAxMDAgNTgiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZDZkZSIgc3Ryb2tlLXdpZHRoPSI2IiBzdHJva2UtbGluZWNhcD0icm91bmQiIG9wYWNpdHk9IjAuOCIvPgo8Y2lyY2xlIGN4PSIxOSIgY3k9IjY2IiByPSI1LjIiIGZpbGw9IiNmZmYiIHN0cm9rZT0iIzhmNGE1YyIgc3Ryb2tlLXdpZHRoPSIyIi8+CjxjaXJjbGUgY3g9IjMyIiBjeT0iNjAiIHI9IjUuMiIgZmlsbD0iI2ZmZiIgc3Ryb2tlPSIjOGY0YTVjIiBzdHJva2Utd2lkdGg9IjIiLz4KPGNpcmNsZSBjeD0iMTgiIGN5PSI2NyIgcj0iMi40IiBmaWxsPSIjM2ExZDI0Ii8+CjxjaXJjbGUgY3g9IjMxIiBjeT0iNjEiIHI9IjIuNCIgZmlsbD0iIzNhMWQyNCIvPgo8L3N2Zz4="
 };
 const BAIT_LIFE = 18;        // エサが残る秒数
+// エサごとの対象と沈み方
+const BAIT_INFO = {
+  worm:  { target:'swim', band:[0.34,0.55], sink:13,  fall:300 },  // ミミズ → さかな
+  apple: { target:'fuwa', band:[0.13,0.30], sink:0,   fall:240 },  // りんご → クラゲ（浮く）
+  meat:  { target:'toko', band:[0.80,0.87], sink:150, fall:420 }   // おにく → カニ（底に沈む）
+};
 const baitImgs = {};
 for (const k in BAIT_IMG){ const i = new Image(); i.src = BAIT_IMG[k]; baitImgs[k] = i; }
 let bait = null;
 
+/* ---------- 投入エフェクト ---------- */
+const SOUND = new URLSearchParams(location.search).get('sound') === '1';
+const fx = [];
+let actx = null;
+
+function splash(x, y, sc){
+  fx.push({ t:'ring', x, y, life:0, dur:0.75, r0:12*sc, r1:105*sc });
+  fx.push({ t:'ring', x, y, life:-0.14, dur:0.7, r0:6*sc, r1:62*sc });
+  for (let i = 0; i < 18; i++){
+    const a = Math.random() * Math.PI * 2;
+    const sp = (70 + Math.random() * 190) * sc;
+    fx.push({ t:'spark', x, y, life:0, dur:0.5 + Math.random()*0.5,
+              vx: Math.cos(a)*sp, vy: Math.sin(a)*sp - 90*sc, sz:(2+Math.random()*3.4)*sc });
+  }
+  if (SOUND) chapon();
+}
+
+function chapon(){
+  try{
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    const t = actx.currentTime;
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(820, t);
+    o.frequency.exponentialRampToValueAtTime(170, t + 0.13);
+    g.gain.setValueAtTime(0.28, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    o.connect(g).connect(actx.destination);
+    o.start(t); o.stop(t + 0.24);
+    // キラキラ
+    const o2 = actx.createOscillator(), g2 = actx.createGain();
+    o2.type = 'triangle';
+    o2.frequency.setValueAtTime(1800, t + 0.06);
+    o2.frequency.exponentialRampToValueAtTime(3200, t + 0.3);
+    g2.gain.setValueAtTime(0.0001, t + 0.06);
+    g2.gain.exponentialRampToValueAtTime(0.07, t + 0.12);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+    o2.connect(g2).connect(actx.destination);
+    o2.start(t + 0.06); o2.stop(t + 0.42);
+  }catch(e){}
+}
+
+function drawFx(dt){
+  for (let i = fx.length - 1; i >= 0; i--){
+    const p = fx[i];
+    p.life += dt;
+    if (p.life < 0) continue;
+    const u = p.life / p.dur;
+    if (u >= 1){ fx.splice(i, 1); continue; }
+    ctx.save();
+    if (p.t === 'ring'){
+      const r = p.r0 + (p.r1 - p.r0) * (1 - Math.pow(1 - u, 3));
+      ctx.globalAlpha = (1 - u) * 0.75;
+      ctx.strokeStyle = '#dff6ff';
+      ctx.lineWidth = Math.max(1.5, 5 * (1 - u));
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, r, r * 0.42, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    } else {
+      p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 260 * dt;
+      ctx.globalAlpha = (1 - u);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      const s = p.sz * (1 - u * 0.5);
+      ctx.moveTo(p.x, p.y - s*2); ctx.lineTo(p.x + s, p.y);
+      ctx.lineTo(p.x, p.y + s*2); ctx.lineTo(p.x - s, p.y);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
 const fishes = new Map();   // id -> fish object
 
-const SIZE_MUL   = { s:0.62, m:0.95, l:1.35 };
+const SIZE_MUL   = { s:0.62, m:0.95, l:1.35, xl:2.05 };
 const TURN_EVERY = { fuwa:[3,9], swim:[6,18], toko:[2,7] };   // 気まぐれUターンの間隔(秒)
 
 function makeFish(id, d, img){
   const motion = d.motion || 'swim';
   const depth  = d.scale ?? 1;
-  const mul    = SIZE_MUL[d.size] ?? SIZE_MUL.m;
+  const mul    = (SIZE_MUL[d.size] ?? SIZE_MUL.m) * (d.grow ?? 1);
   const k = (H / BASE_H) * mul * depth;
   const w = img.width  * k;
   const h = img.height * k;
-  const [t0, t1] = TURN_EVERY[motion] || TURN_EVERY.swim;
+  let [t0, t1] = TURN_EVERY[motion] || TURN_EVERY.swim;
+  if (d.size === 'xl'){ t0 *= 2.2; t1 *= 2.2; }
   return {
     id, img, motion, name: d.name || '', w, h,
     x: Math.random() * Math.max(1, W - w),
     y: (d.y ?? 0.5) * H,
     dir: d.dir ?? 1,
     face: d.face ?? -1,                   // 絵が向いている方向（既定は左向き）
-    speed: (d.speed ?? 30) * (H / BASE_H),
+    speed: (d.speed ?? 30) * (H / BASE_H) * Math.pow(0.94, Math.max(0, Math.round(Math.log(d.grow ?? 1) / Math.log(1.22)))),
     vy: (Math.random() < .5 ? -1 : 1) * (4 + Math.random() * 7) * (H / BASE_H),
     phase: Math.random() * Math.PI * 2,
     bob: (6 + Math.random() * 10) * (H / BASE_H),
-    depth, mul, alpha: 0,
+    depth, mul, grow: d.grow ?? 1, alpha: 0,
     turnRange: [t0, t1],
-    turnCool: t0 + Math.random() * (t1 - t0)
+    turnCool: t0 + Math.random() * (t1 - t0),
+    drop: 0, dropped: true
   };
 }
 
@@ -89,13 +170,22 @@ const app = initializeApp(firebaseConfig);
 const db  = getDatabase(app);
 const fishRef = ref(db, `aquarium/tanks/${TANK}/fish`);
 
+let ready = false;   // 初回読み込みが終わったか
+
 async function addFish(id, d){
   if (!d || !d.img || fishes.has(id)) return;
   const img = new Image();
   img.src = d.img;
   try { await img.decode(); } catch { return; }   // ← 画像が確実に読めてから登録
   if (fishes.has(id)) return;
-  fishes.set(id, makeFish(id, d, img));
+  const f = makeFish(id, d, img);
+  if (ready){                                     // 新しく投入された魚だけ演出する
+    f.landY = f.y;
+    f.y = -f.h * 0.8;
+    f.drop = 0; f.dropped = false;
+    f.alpha = 1;
+  }
+  fishes.set(id, f);
 }
 
 // await-first：既存分をすべて読み込んでから購読を開始する
@@ -104,7 +194,20 @@ if (initial.exists()){
   const val = initial.val();
   await Promise.all(Object.entries(val).map(([id, d]) => addFish(id, d)));
 }
+ready = true;
 onChildAdded(fishRef, s => addFish(s.key, s.val()));
+onValue(fishRef, s => {                       // grow の変化を反映
+  const v = s.val() || {};
+  for (const [id, d] of Object.entries(v)){
+    const f = fishes.get(id);
+    if (!f) continue;
+    const g = d.grow ?? 1;
+    if (Math.abs(g - f.grow) < 0.001) continue;
+    const r = g / f.grow;
+    f.w *= r; f.h *= r; f.mul *= r; f.grow = g;
+    f.pop = 0;
+  }
+});
 onChildRemoved(fishRef, s => {
   const f = fishes.get(s.key);
   if (f) f.dying = true;               // フェードアウトしてから消す
@@ -116,15 +219,70 @@ onValue(baitRef, s => {
   const v = s.val();
   if (!v || !v.type){ if (bait) bait.dying = true; return; }
   if (bait && bait.ts === v.ts) return;
+  if (v.img && !baitImgs['custom:' + v.ts]){
+    const im = new Image(); im.src = v.img; baitImgs['custom:' + v.ts] = im;
+  }
   bait = {
-    type: v.type, ts: v.ts,
+    type: v.type, ts: v.ts, forId: v.forId || null,
+    imgKey: v.img ? ('custom:' + v.ts) : v.type,
+    eaten: false,
     x: (v.x ?? 0.5) * W,
     y: -0.15 * H,
-    landY: (0.30 + Math.random() * 0.22) * H,
+    landY: (() => {
+      const tf = v.forId ? fishes.get(v.forId) : null;
+      if (tf) return Math.max(H * 0.1, Math.min(H * 0.85, tf.y));
+      const b = (BAIT_INFO[v.type] || BAIT_INFO.worm).band;
+      return (b[0] + Math.random() * (b[1] - b[0])) * H; })(),
     age: 0, alpha: 0, dying: false, cleared: false,
     phase: Math.random() * 6.28
   };
 });
+
+/* ---------- 食べて大きくなる ---------- */
+const GROW = 1.22;   // 1回で何倍になるか
+
+function eatAndGrow(f, bx, by, k){
+  const grow = (f.grow ?? 1) * GROW;
+  f.grow = grow;
+  f.w *= GROW; f.h *= GROW; f.mul *= GROW;
+  f.speed *= 0.94;
+  f.pop = 0;
+  fx.push({ t:'ring', x:bx, y:by, life:0, dur:0.6, r0:14*k, r1:90*k });
+  for (let i = 0; i < 14; i++){
+    const a = Math.random() * Math.PI * 2, sp = (60 + Math.random()*150) * k;
+    fx.push({ t:'spark', x:bx, y:by, life:0, dur:0.5 + Math.random()*0.4,
+              vx: Math.cos(a)*sp, vy: Math.sin(a)*sp - 70*k, sz:(2+Math.random()*3)*k });
+  }
+  if (SOUND) nomnom();
+  set(ref(db, `aquarium/tanks/${TANK}/fish/${f.id}/grow`), grow).catch(()=>{});
+  remove(baitRef).catch(()=>{});
+}
+
+function nomnom(){
+  try{
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    const t = actx.currentTime;
+    [0, 0.13].forEach((d, i) => {
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = 'square';
+      o.frequency.setValueAtTime(180 - i*30, t + d);
+      g.gain.setValueAtTime(0.09, t + d);
+      g.gain.exponentialRampToValueAtTime(0.001, t + d + 0.09);
+      o.connect(g).connect(actx.destination);
+      o.start(t + d); o.stop(t + d + 0.1);
+    });
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(700, t + 0.28);
+    o.frequency.exponentialRampToValueAtTime(1500, t + 0.5);
+    g.gain.setValueAtTime(0.0001, t + 0.28);
+    g.gain.exponentialRampToValueAtTime(0.11, t + 0.34);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    o.connect(g).connect(actx.destination);
+    o.start(t + 0.28); o.stop(t + 0.62);
+  }catch(e){}
+}
 
 /* ---------- アニメーション ---------- */
 let prev = performance.now();
@@ -134,12 +292,17 @@ function loop(now){
   ctx.clearRect(0, 0, W, H);
 
   // エサの更新
-  let baitPos = null;
+  let baitPos = null, baitTarget = null, baitFor = null;
   if (bait){
     bait.age += dt;
     const k = H / BASE_H;
-    if (bait.y < bait.landY) bait.y = Math.min(bait.landY, bait.y + 300 * k * dt);
-    else bait.y = Math.min(H * 0.86, bait.y + 13 * k * dt);      // ゆっくり沈む
+    const info = BAIT_INFO[bait.type] || BAIT_INFO.worm;
+    if (bait.y < bait.landY){
+      bait.y = Math.min(bait.landY, bait.y + info.fall * k * dt);
+      if (bait.y >= bait.landY && !bait.splashed){ bait.splashed = true; splash(bait.x, bait.y, k); }
+    } else if (info.sink && !bait.forId){
+      bait.y = Math.min(H * 0.88, bait.y + info.sink * k * dt);
+    }
     bait.phase += dt * 1.3;
     if (bait.age > BAIT_LIFE && !bait.dying){
       bait.dying = true;
@@ -148,11 +311,15 @@ function loop(now){
     bait.alpha = bait.dying ? bait.alpha - dt * 0.8 : Math.min(1, bait.alpha + dt * 2);
     if (bait.alpha <= 0){ bait = null; }
     else {
-      const img = baitImgs[bait.type];
+      const img = baitImgs[bait.imgKey] || baitImgs[bait.type];
       const bw = (img?.width  || 160) * k * 0.9;
       const bh = (img?.height || 160) * k * 0.9;
       const bx = bait.x + Math.sin(bait.phase) * 9 * k;
-      if (!bait.dying) baitPos = { x: bx, y: bait.y };
+      if (!bait.dying && !bait.eaten){
+        baitPos = { x: bx, y: bait.y };
+        baitTarget = (BAIT_INFO[bait.type] || BAIT_INFO.worm).target;
+        baitFor = bait.forId;
+      }
       if (img && img.complete){
         ctx.save();
         ctx.globalAlpha = Math.max(0, bait.alpha);
@@ -176,31 +343,56 @@ function loop(now){
       f.alpha = Math.min(1, f.alpha + dt * 0.8);
     }
 
+    // 投入時の落下
+    if (!f.dropped){
+      f.drop += dt / 0.75;
+      if (f.drop >= 1){
+        f.drop = 1; f.dropped = true; f.y = f.landY;
+        splash(f.x + f.w / 2, f.landY, (H / BASE_H) * f.mul);
+      } else {
+        const e = 1 - Math.pow(1 - f.drop, 3);
+        f.y = -f.h * 0.8 + (f.landY + f.h * 0.8) * e;
+      }
+    }
+
     // 横移動（エサがあれば群がる）
-    const chasing = !!baitPos;
+    const chasing = !!baitPos && f.dropped &&
+      (baitFor ? f.id === baitFor : f.motion === baitTarget);
     let nibbling = false;
     if (chasing){
       const k = H / BASE_H;
-      f.reOff = (f.reOff ?? 0) - dt;
-      if (f.reOff <= 0){                       // たまに位置取りを変える
-        f.ox = (Math.random() - 0.5) * 190 * k * f.mul;
-        f.oy = (Math.random() - 0.5) * 130 * k * f.mul;
-        f.reOff = 1.4 + Math.random() * 2.2;
+      if (baitFor){ f.ox = 0; f.oy = 0; }
+      else {
+        f.reOff = (f.reOff ?? 0) - dt;
+        if (f.reOff <= 0){                     // たまに位置取りを変える
+          f.ox = (Math.random() - 0.5) * 190 * k * f.mul;
+          f.oy = (Math.random() - 0.5) * 130 * k * f.mul;
+          f.reOff = 1.4 + Math.random() * 2.2;
+        }
       }
       const cx = f.x + f.w / 2;
       const tx = baitPos.x + f.ox;
-      const ty = (f.motion === 'toko') ? f.y : baitPos.y + f.oy;
+      const ty = (f.motion === 'toko' && !baitFor) ? f.y : baitPos.y + f.oy;
       const dx = tx - cx, dy = ty - f.y;
       const dist = Math.hypot(dx, dy) || 1;
       const sp = f.speed * (f.motion === 'fuwa' ? 2.0 : 2.7);
       const ease = Math.min(1, dist / (70 * k));
       f.x += (dx / dist) * sp * ease * dt;
-      if (f.motion !== 'toko'){
+      if (f.motion !== 'toko' || baitFor){
         f.y += (dy / dist) * sp * ease * dt;
         f.y = Math.max(H * 0.05, Math.min(H * 0.9, f.y));
       }
       if (Math.abs(dx) > 3 * k) f.dir = dx > 0 ? 1 : -1;
-      if (dist < 90 * k){ nibbling = true; f.nib = (f.nib ?? 0) + dt * 13; }
+      if (dist < 90 * k){
+        nibbling = true; f.nib = (f.nib ?? 0) + dt * 13;
+        if (baitFor && bait && !bait.eaten){
+          bait.eatT = (bait.eatT ?? 0) + dt;
+          if (bait.eatT > 1.6){                // 1.6秒つついたら完食
+            bait.eaten = true; bait.dying = true;
+            eatAndGrow(f, bait.x, bait.y, k);
+          }
+        }
+      }
       f.x = Math.max(-f.w * 0.15, Math.min(W - f.w * 0.85, f.x));
     } else {
       f.x += f.speed * f.dir * dt;
@@ -241,6 +433,11 @@ function loop(now){
       yOff = Math.sin(f.phase) * f.bob * (chasing ? 0.45 : 1);
     }
     if (nibbling){ yOff += Math.sin(f.nib) * f.h * 0.04; rot += Math.sin(f.nib * 0.5) * 0.06; }
+    if (f.pop !== undefined && f.pop < 1){
+      f.pop = Math.min(1, f.pop + dt * 1.8);
+      const p = 1 + Math.sin(f.pop * Math.PI) * 0.28;
+      sx *= p; sy *= p;
+    }
     const y = f.y + yOff;
 
     // 描画（フワフワは左右反転せず、傾きで向きを表現）
@@ -270,6 +467,7 @@ function loop(now){
       ctx.restore();
     }
   }
+  drawFx(dt);
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
