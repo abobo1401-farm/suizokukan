@@ -30,7 +30,9 @@ const firebaseConfig = {
 };
 /* ========================================================== */
 
-const TANK       = new URLSearchParams(location.search).get('tank') || '1';
+const qs         = new URLSearchParams(location.search);
+const FIXED_TANK = qs.get('tank');          // 指定があればその水槽に固定
+let   TANK       = FIXED_TANK || '1';
 const SHOW_NAMES = new URLSearchParams(location.search).get('names') !== '0';
 const BASE_H     = 1080;   // speed の基準解像度
 
@@ -60,6 +62,7 @@ const BAIT_INFO = {
 const baitImgs = {};
 for (const k in BAIT_IMG){ const i = new Image(); i.src = BAIT_IMG[k]; baitImgs[k] = i; }
 let bait = null;
+let banner = null;
 
 /* ---------- 投入エフェクト ---------- */
 const SOUND = new URLSearchParams(location.search).get('sound') === '1';
@@ -168,7 +171,9 @@ function makeFish(id, d, img){
 /* ---------- Firebase ---------- */
 const app = initializeApp(firebaseConfig);
 const db  = getDatabase(app);
-const fishRef = ref(db, `aquarium/tanks/${TANK}/fish`);
+let fishRef = ref(db, `aquarium/tanks/${TANK}/fish`);
+let baitRef = ref(db, `aquarium/tanks/${TANK}/bait`);
+let offFish = [], offBait = null;
 
 let ready = false;   // 初回読み込みが終わったか
 
@@ -179,6 +184,7 @@ async function addFish(id, d){
   try { await img.decode(); } catch { return; }   // ← 画像が確実に読めてから登録
   if (fishes.has(id)) return;
   const f = makeFish(id, d, img);
+  fishMeta.set(id, { ts: d.ts, size: d.size || 'm', motion: d.motion || 'swim' });
   if (ready){                                     // 新しく投入された魚だけ演出する
     f.landY = f.y;
     f.y = -f.h * 0.8;
@@ -188,34 +194,56 @@ async function addFish(id, d){
   fishes.set(id, f);
 }
 
-// await-first：既存分をすべて読み込んでから購読を開始する
-const initial = await get(fishRef);
-if (initial.exists()){
-  const val = initial.val();
-  await Promise.all(Object.entries(val).map(([id, d]) => addFish(id, d)));
-}
-ready = true;
-onChildAdded(fishRef, s => addFish(s.key, s.val()));
-onValue(fishRef, s => {                       // grow の変化を反映
-  const v = s.val() || {};
-  for (const [id, d] of Object.entries(v)){
-    const f = fishes.get(id);
-    if (!f) continue;
-    const g = d.grow ?? 1;
-    if (Math.abs(g - f.grow) < 0.001) continue;
-    const r = g / f.grow;
-    f.w *= r; f.h *= r; f.mul *= r; f.grow = g;
-    f.pop = 0;
+async function switchTank(tank){
+  TANK = String(tank);
+  offFish.forEach(fn => fn && fn());
+  offFish = [];
+  ready = false;
+  fishes.clear();
+  bait = null;
+  fishRef = ref(db, `aquarium/tanks/${TANK}/fish`);
+  baitRef = ref(db, `aquarium/tanks/${TANK}/bait`);
+
+  const initial = await get(fishRef);
+  if (initial.exists()){
+    await Promise.all(Object.entries(initial.val()).map(([id, d]) => addFish(id, d)));
   }
-});
-onChildRemoved(fishRef, s => {
-  const f = fishes.get(s.key);
-  if (f) f.dying = true;               // フェードアウトしてから消す
-});
+  ready = true;
+  offFish.push(onChildAdded(fishRef, s => addFish(s.key, s.val())));
+  offFish.push(onValue(fishRef, s => {              // grow の変化を反映
+    const v = s.val() || {};
+    for (const [id, d] of Object.entries(v)){
+      const f = fishes.get(id);
+      if (!f) continue;
+      const g = d.grow ?? 1;
+      if (Math.abs(g - f.grow) < 0.001) continue;
+      const r = g / f.grow;
+      f.w *= r; f.h *= r; f.mul *= r; f.grow = g;
+      f.pop = 0;
+    }
+  }));
+  offFish.push(onChildRemoved(fishRef, s => {
+    const f = fishes.get(s.key);
+    if (f) f.dying = true;             // フェードアウトしてから消す
+  }));
+  subscribeBait();
+  banner = { text: `水槽 ${TANK}`, life: 0 };
+}
+
+await switchTank(TANK);
+
+// tank指定がなければ管理画面の選択に追従する
+if (!FIXED_TANK){
+  onValue(ref(db, 'aquarium/view/tank'), s => {
+    const t = s.val();
+    if (t && String(t) !== TANK) switchTank(t);
+  });
+}
 
 /* ---------- エサ ---------- */
-const baitRef = ref(db, `aquarium/tanks/${TANK}/bait`);
-onValue(baitRef, s => {
+function subscribeBait(){
+  if (offBait) offBait();
+  offBait = onValue(baitRef, s => {
   const v = s.val();
   if (!v || !v.type){ if (bait) bait.dying = true; return; }
   if (bait && bait.ts === v.ts) return;
@@ -236,7 +264,8 @@ onValue(baitRef, s => {
     age: 0, alpha: 0, dying: false, cleared: false,
     phase: Math.random() * 6.28
   };
-});
+  });
+}
 
 /* ---------- 食べて大きくなる ---------- */
 const GROW = 1.22;   // 1回で何倍になるか
@@ -282,6 +311,106 @@ function nomnom(){
     o.connect(g).connect(actx.destination);
     o.start(t + 0.28); o.stop(t + 0.62);
   }catch(e){}
+}
+
+/* ---------- クリックで拡大表示 ---------- */
+let detail = null;   // { f, life }
+const fishMeta = new Map();   // id -> { ts, size, motion }
+
+cv.style.pointerEvents = 'auto';
+cv.addEventListener('pointerdown', e => {
+  const r = cv.getBoundingClientRect();
+  const px = (e.clientX - r.left) * (W / r.width);
+  const py = (e.clientY - r.top)  * (H / r.height);
+
+  if (detail){ detail.closing = true; return; }
+
+  // 手前（大きい）から順に当たり判定
+  const list = [...fishes.values()].sort((a, b) => b.depth - a.depth);
+  for (const f of list){
+    if (!f.dropped || f.dying) continue;
+    const cx = f.x + f.w / 2, cy = f.lastY ?? f.y;
+    if (Math.abs(px - cx) < f.w / 2 && Math.abs(py - cy) < f.h / 2){
+      detail = { f, life: 0, closing: false };
+      return;
+    }
+  }
+});
+
+const SIZE_LABEL = { s:'小', m:'中', l:'大', xl:'特大' };
+const MOTION_LABEL = { fuwa:'フワフワ', swim:'スイスイ', toko:'トコトコ' };
+
+function drawDetail(dt){
+  if (!detail) return;
+  detail.life += detail.closing ? -dt * 3.5 : dt * 3.5;
+  if (detail.life <= 0 && detail.closing){ detail = null; return; }
+  const u = Math.min(1, detail.life);
+  const e = 1 - Math.pow(1 - u, 3);
+  const f = detail.f;
+  const m = fishMeta.get(f.id) || {};
+  const k = H / BASE_H;
+
+  ctx.save();
+  ctx.globalAlpha = e * 0.72;
+  ctx.fillStyle = '#02141f';
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+
+  // 魚を中央に大きく
+  const maxW = W * 0.5, maxH = H * 0.44;
+  const sc = Math.min(maxW / f.img.width, maxH / f.img.height);
+  const dw = f.img.width * sc * e, dh = f.img.height * sc * e;
+  const cy = H * 0.42;
+  ctx.save();
+  ctx.globalAlpha = e;
+  ctx.translate(W / 2, cy);
+  if (f.face === 1) ctx.scale(-1, 1);
+  ctx.drawImage(f.img, -dw / 2, -dh / 2, dw, dh);
+  ctx.restore();
+
+  // 情報
+  ctx.save();
+  ctx.globalAlpha = e;
+  ctx.textAlign = 'center';
+  const baseY = cy + maxH * 0.5 + 40 * k;
+
+  ctx.font = `800 ${Math.round(46 * k)}px "Hiragino Maru Gothic ProN",sans-serif`;
+  ctx.lineWidth = 9 * k; ctx.strokeStyle = 'rgba(2,20,32,.9)';
+  ctx.fillStyle = '#ffffff';
+  ctx.strokeText(f.name || '(なまえなし)', W / 2, baseY);
+  ctx.fillText(f.name || '(なまえなし)', W / 2, baseY);
+
+  const g = f.grow ?? 1;
+  const sizeTxt = (SIZE_LABEL[m.size] || '中') + (g > 1.01 ? `（×${g.toFixed(2)}に成長）` : '');
+  const d = m.ts ? new Date(m.ts) : null;
+  const dateTxt = d
+    ? `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+    : '不明';
+
+  const lines = [
+    ['おおきさ', sizeTxt],
+    ['うごき',   MOTION_LABEL[m.motion] || 'スイスイ'],
+    ['えがかれた日', dateTxt]
+  ];
+  ctx.font = `600 ${Math.round(25 * k)}px "Hiragino Maru Gothic ProN",sans-serif`;
+  ctx.lineWidth = 6 * k;
+  lines.forEach((ln, i) => {
+    const y = baseY + (46 + i * 38) * k;
+    const t = `${ln[0]}　${ln[1]}`;
+    ctx.strokeStyle = 'rgba(2,20,32,.9)';
+    ctx.fillStyle = '#cfeaf7';
+    ctx.strokeText(t, W / 2, y);
+    ctx.fillText(t, W / 2, y);
+  });
+
+  ctx.font = `500 ${Math.round(19 * k)}px "Hiragino Maru Gothic ProN",sans-serif`;
+  ctx.globalAlpha = e * 0.6;
+  ctx.strokeStyle = 'rgba(2,20,32,.9)';
+  ctx.fillStyle = '#ffffff';
+  const cl = 'クリックでとじる';
+  ctx.strokeText(cl, W / 2, H - 42 * k);
+  ctx.fillText(cl, W / 2, H - 42 * k);
+  ctx.restore();
 }
 
 /* ---------- アニメーション ---------- */
@@ -439,6 +568,7 @@ function loop(now){
       sx *= p; sy *= p;
     }
     const y = f.y + yOff;
+    f.lastY = y;
 
     // 描画（フワフワは左右反転せず、傾きで向きを表現）
     ctx.save();
@@ -468,6 +598,29 @@ function loop(now){
     }
   }
   drawFx(dt);
+  drawDetail(dt);
+
+  // 水槽切り替えの表示
+  if (banner){
+    banner.life += dt;
+    const u = banner.life / 2.2;
+    if (u >= 1) banner = null;
+    else {
+      const a = u < 0.15 ? u / 0.15 : (u > 0.75 ? (1 - u) / 0.25 : 1);
+      const k = H / BASE_H;
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, a));
+      ctx.font = `800 ${Math.round(34 * k)}px "Hiragino Maru Gothic ProN",sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.lineWidth = 8 * k;
+      ctx.strokeStyle = 'rgba(2,20,32,.8)';
+      ctx.fillStyle = '#dff6ff';
+      ctx.strokeText(banner.text, W / 2, 52 * k);
+      ctx.fillText(banner.text, W / 2, 52 * k);
+      ctx.restore();
+    }
+  }
+
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);

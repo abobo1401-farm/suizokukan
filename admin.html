@@ -110,7 +110,7 @@
 </head>
 <body>
 <h1>水族館 管理</h1>
-<p class="sub">水槽は5個。1水槽あたり50匹まで（合計250匹）</p>
+<p class="sub">水槽は5個。1水槽あたり50匹まで（合計250匹）<br>水槽のタブを押すとOBSの表示も切り替わります</p>
 
 <div id="warn" class="warn" style="display:none"></div>
 <div class="tanks" id="tanks"></div>
@@ -196,7 +196,10 @@ function renderTanks(){
     const b = document.createElement('button');
     b.className = 'tankbtn' + (t === current ? ' on' : '') + (n >= TANK_LIMIT ? ' full' : '');
     b.innerHTML = `水槽${t}<span class="cnt">${n} / ${TANK_LIMIT}${n>=TANK_LIMIT?' 満員':''}</span>`;
-    b.onclick = () => { current = t; renderTanks(); loadFish(); };
+    b.onclick = () => {
+      current = t; renderTanks(); loadFish();
+      set(ref(db, 'aquarium/view/tank'), t).catch(()=>{});
+    };
     box.appendChild(b);
   }
 
@@ -211,8 +214,8 @@ function renderTanks(){
   } else {
     w.style.display = 'none';
   }
-  document.getElementById('obsUrl').textContent =
-    `OBS用URL：${location.href.replace(/admin\.html.*$/, '')}display.html?tank=${current}`;
+  document.getElementById('obsUrl').innerHTML =
+    `OBS用URL（この1本で全水槽を切り替え）：<br>${location.href.replace(/admin\.html.*$/, '')}display.html`;
 }
 
 /* ---------- 魚一覧 ---------- */
