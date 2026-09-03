@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head><meta charset="utf-8"><title>水族館レース</title><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}canvas{display:block;width:100%;height:100%}</style></head>
+<body><canvas id="cv"></canvas>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, onValue, update, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+const firebaseConfig={apiKey:"★ここにAPIキー★",authDomain:"utaoshi-ringo.firebaseapp.com",databaseURL:"https://utaoshi-ringo-default-rtdb.asia-southeast1.firebasedatabase.app",projectId:"utaoshi-ringo",storageBucket:"utaoshi-ringo.appspot.com",messagingSenderId:"★★★",appId:"★★★"};
+const app=initializeApp(firebaseConfig),db=getDatabase(app),cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+let W=0,H=0;function resize(){W=cv.width=Math.max(1,innerWidth);H=cv.height=Math.max(1,innerHeight)}addEventListener('resize',resize);resize();
+
+/* ---------- 背景・前景の素材 ---------- */
+const ASSET_DIR='assets/';
+const ART={bg:null,weed:[],rock:[],pebble:[],bubble:[],stream:[]};
+let artReady=false;
+(async()=>{
+  try{
+    const man=await (await fetch(ASSET_DIR+'manifest.json')).json();
+    const load=src=>new Promise(res=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>res(null);i.src=src});
+    ART.bg=await load(ASSET_DIR+'bg_water.jpg');
+    for(const k of ['weed','rock','pebble','bubble','stream']){
+      ART[k]=(await Promise.all((man[k]||[]).map(o=>load(ASSET_DIR+o.f)))).filter(Boolean);
+    }
+    artReady=!!ART.bg;
+  }catch(e){console.warn('素材を読み込めませんでした',e)}
+})();
+
+const RACE_SECONDS=90;
+const COURSE_SCREENS=18; // 18画面ぶんの長いコース
+let state={status:'idle'},race=null,last=performance.now(),reportedNonce=null;
+const images=new Map();
+function hash(n,i){let x=(Number(n)||1)^(i*0x9e3779b9);x=Math.imul(x^(x>>>16),0x21f0aaad);x=Math.imul(x^(x>>>15),0x735a2d97);return(x^(x>>>15))>>>0}
+function rnd(seed){let x=seed>>>0;return()=>{x+=0x6D2B79F5;let t=x;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296}}
+async function prepEntrants(arr){await Promise.all((arr||[]).slice(0,5).map(async e=>{const k=`${e.tank}:${e.id}`;if(images.has(k))return;const im=new Image();im.src=e.img;try{await im.decode();images.set(k,im)}catch{}}))}
+
+onValue(ref(db,'aquarium/race'),async s=>{
+  const v=s.val()||{status:'idle'}; state=v;
+  const entrants=(v.entrants||[]).slice(0,5); await prepEntrants(entrants);
+  if(v.status==='staged')race=makeRace(v,entrants,true);
+  else if((v.status==='countdown'||v.status==='running')&&(!race||race.nonce!==v.nonce))race=makeRace(v,entrants,false);
+  else if(v.status==='idle')race=null;
+});
+
+function makeRace(v,entrants,staged){
+  const rrCourse=rnd(hash(v.nonce,777));
+  const objects=[],midObjects=[],bubbles=[];
+  // 前景：海底に岩・わかめを並べる
+  for(let k=0;k<COURSE_SCREENS;k++){
+    for(let m=0;m<3;m++){
+      const t=rrCourse();
+      objects.push({kind:t<.42?'weed':t<.78?'rock':'pebble',
+        idx:Math.floor(rrCourse()*99),
+        x:k+(m+rrCourse()*.9)/3,
+        y:.885+rrCourse()*.055,
+        scale:.55+rrCourse()*.6,
+        flip:rrCourse()<.5});
+    }
+    // 中景：小さく薄い岩・海藻
+    for(let m=0;m<2;m++){
+      midObjects.push({kind:rrCourse()<.55?'weed':'rock',
+        idx:Math.floor(rrCourse()*99),
+        x:k+(m+rrCourse())/2,
+        y:.80+rrCourse()*.05,
+        scale:.30+rrCourse()*.28,
+        flip:rrCourse()<.5});
+    }
+    // 泡
+    bubbles.push({kind:rrCourse()<.45?'stream':'bubble',idx:Math.floor(rrCourse()*99),
+      x:k+rrCourse(),y:.12+rrCourse()*.6,scale:.45+rrCourse()*.6,
+      sp:.10+rrCourse()*.16,ph:rrCourse()*6.28});
+  }
+  const now=performance.now();
+  return {nonce:v.nonce,staged,finished:false,finishOrder:[],startPerf:now+3400,camera:0,objects,midObjects,bubbles,
+    fishingPlanned: rrCourse() < 0.50, fishingTriggered:false, fishingTarget:null, fishingReturnAt:0, fishingReturnTop:false,
+    racers:entrants.map((e,i)=>{
+      const rr=rnd(hash(v.nonce,i+1));
+      const training=1+(Math.max(.75,Math.min(1.6,Number(e.spd||1)))-1)*.16;
+      const obs=[];for(let p=2.1;p<COURSE_SCREENS-1;p+=2.5+rr()*1.5)obs.push({x:p+rr()*.8,kind:rr()<.5?'rock':'weed',idx:Math.floor(rr()*99),flip:rr()<.5});
+      const food=[];for(let p=3.2;p<COURSE_SCREENS-1;p+=4+rr()*2)food.push(p+rr()*.8);
+      return{e,i,world:.18,phase:rr()*6.28,base:(COURSE_SCREENS-.9)/RACE_SECONDS*(.94+rr()*.12)*training,jitter:0,lastJitter:0,pause:0,foodText:0,hitText:0,finished:false,obstacles:obs,foods:food,hitOb:new Set(),hitFood:new Set(),lane:i,fishing:false,fishT:0};
+    })};
+}
+
+function sizeMul(e){const base={s:.72,m:1,l:1.16,xl:1.30}[e.size]||1;const g=Math.max(.70,Math.min(1.52,1+(Number(e.grow||1)-1)*.42));return base*g}
+function laneY(i){const top=H*.20,bottom=H*.82;return top+(bottom-top)*(i+.5)/5}
+function screenX(world){return (world-race.camera)*W}
+
+function drawSprite(list,idx,cx,cy,targetH,flip,alpha){
+  if(!list||!list.length)return;
+  const im=list[idx%list.length];if(!im||!im.width)return;
+  const sc=targetH/im.height,w=im.width*sc,h=targetH;
+  ctx.save();ctx.globalAlpha=alpha??1;ctx.translate(cx,cy);if(flip)ctx.scale(-1,1);
+  ctx.drawImage(im,-w/2,-h,w,h);ctx.restore();
+}
+function drawWaterBase(now){
+  ctx.clearRect(0,0,W,H);
+  if(artReady&&ART.bg){
+    // 横につながる背景をループさせる（遠景なのでゆっくり流れる）
+    const im=ART.bg,sc=H/im.height,tw=im.width*sc;
+    let off=(((race?.camera||0)*W*.30)%tw+tw)%tw;
+    for(let x=-off;x<W+1;x+=tw)ctx.drawImage(im,x,0,tw+1,H);
+  }else{
+    const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#0b7898');g.addColorStop(.58,'#07516f');g.addColorStop(1,'#032737');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#183f42';ctx.fillRect(0,H*.88,W,H*.12);
+  }
+  // 水中の光の筋
+  ctx.save();ctx.globalAlpha=.07;ctx.strokeStyle='#eafdff';ctx.lineWidth=Math.max(3,W*.004);
+  const shift=((race?.camera||0)*W*.42)%210;
+  for(let x=-260;x<W+260;x+=210){ctx.beginPath();ctx.moveTo(x-shift,0);ctx.lineTo(x+210-shift,H*.62);ctx.stroke()}
+  ctx.restore();
+}
+function drawParallax(){
+  if(!race)return;
+  if(artReady){
+    // 中景：手前よりゆっくり流れる岩と海藻
+    const P=.62;
+    for(const o of race.midObjects){
+      const x=(o.x-race.camera*P)*W;
+      if(x<-W*.3||x>W*1.3)continue;
+      drawSprite(ART[o.kind],o.idx,x,H*o.y+H*.10,H*o.scale*.42,o.flip,.42);
+    }
+  }
+}
+function drawBubbles(now){
+  if(!race||!artReady)return;
+  const P=.85;
+  for(const b of race.bubbles){
+    const x=(b.x-race.camera*P)*W;
+    if(x<-W*.25||x>W*1.25)continue;
+    const drift=Math.sin(now/1400+b.ph)*W*.006;
+    const y=H*b.y-((now*b.sp*.05)%(H*.5));
+    drawSprite(ART[b.kind],b.idx,x+drift,y+H*.18,H*b.scale*(b.kind==='stream'?.34:.11),false,.5);
+  }
+}
+function drawCourseObjects(){
+  if(!race)return;
+  if(artReady){
+    for(const o of race.objects){
+      const x=screenX(o.x);
+      if(x<-W*.35||x>W*1.35)continue;
+      const hh=H*o.scale*(o.kind==='weed'?.30:o.kind==='rock'?.20:.075);
+      drawSprite(ART[o.kind],o.idx,x,H*o.y,hh,o.flip,.97);
+    }
+  }
+  // START / GOAL
+  ctx.textAlign='center';
+  const sx=screenX(.05);
+  if(sx>-140&&sx<W+140){ctx.fillStyle='rgba(255,255,255,.92)';ctx.font=`900 ${Math.max(20,H*.034)}px sans-serif`;ctx.fillText('START',sx,H*.10);ctx.strokeStyle='rgba(255,255,255,.6)';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(sx,H*.13);ctx.lineTo(sx,H*.86);ctx.stroke()}
+  const gx=screenX(COURSE_SCREENS-.45);
+  if(gx>-200&&gx<W+200){ctx.font=`${Math.max(34,H*.08)}px sans-serif`;ctx.fillText('🏁',gx,H*.16);ctx.strokeStyle='rgba(255,255,255,.9)';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(gx,H*.13);ctx.lineTo(gx,H*.86);ctx.stroke()}
+}
+function drawObstacles(){
+  if(!race)return;
+  for(const r of race.racers){
+    for(let j=0;j<r.obstacles.length;j++){
+      if(r.hitOb.has(j))continue;
+      const o=r.obstacles[j],x=screenX(o.x);
+      if(x<-120||x>W+120)continue;
+      const y=laneY(r.i)+H*.055;
+      if(artReady)drawSprite(ART[o.kind],o.idx,x,y,H*(o.kind==='weed'?.135:.10),o.flip,.95);
+      else{ctx.save();ctx.textAlign='center';ctx.font=`${Math.max(22,H*.05)}px sans-serif`;ctx.fillText(o.kind==='weed'?'🌿':'🪨',x,y);ctx.restore()}
+    }
+  }
+}
+function drawRaceFoods(){if(!race)return;
+  for(const r of race.racers){
+    for(let j=0;j<r.foods.length;j++){
+      if(r.hitFood.has(j))continue;
+      const x=screenX(r.foods[j]);
+      if(x<-60||x>W+60)continue;
+      const y=laneY(r.i);
+      ctx.save();ctx.translate(x,y);ctx.globalAlpha=.96;
+      // エサ本体：絵文字に頼らず、小さなエビ風シルエットで表示
+      ctx.fillStyle='#ffb07a';ctx.strokeStyle='rgba(255,255,255,.8)';ctx.lineWidth=2;
+      ctx.beginPath();ctx.ellipse(0,0,11,7,-.2,0,Math.PI*2);ctx.fill();ctx.stroke();
+      ctx.beginPath();ctx.moveTo(-10,0);ctx.lineTo(-19,-8);ctx.lineTo(-17,5);ctx.closePath();ctx.fill();
+      ctx.fillStyle='#2b3138';ctx.beginPath();ctx.arc(6,-2,1.8,0,Math.PI*2);ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+function drawFishing(now){if(!race||!race.fishingTarget)return;
+  const r=race.fishingTarget;if(!r.fishing)return;
+  const e=r.e,im=images.get(`${e.tank}:${e.id}`);if(!im)return;
+  const x=Math.max(W*.18,Math.min(W*.80,screenX(r.world)));
+  const u=Math.min(1,Math.max(0,r.fishT/1.25));
+  const baseY=laneY(r.i), y=baseY-(H*.55)*u;
+  ctx.save();ctx.strokeStyle='rgba(235,245,250,.9)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,y-12);ctx.stroke();
+  ctx.font=`${Math.max(22,H*.045)}px sans-serif`;ctx.textAlign='center';ctx.fillStyle='#fff';ctx.fillText('J',x,y-8);
+  ctx.font=`900 ${Math.max(18,H*.028)}px sans-serif`;ctx.lineWidth=5;ctx.strokeStyle='rgba(2,20,32,.88)';ctx.fillStyle='#fff';ctx.strokeText('釣られた！',x,Math.max(30,y-45));ctx.fillText('釣られた！',x,Math.max(30,y-45));ctx.restore();
+}
+function drawSpeedStreaks(now){if(!race||race.staged)return;const elapsed=(now-race.startPerf)/1000;if(elapsed<0)return;ctx.save();ctx.globalAlpha=.22;ctx.strokeStyle='#dffaff';ctx.lineWidth=2;const speed=Math.min(1,elapsed/4);for(let i=0;i<30;i++){const y=((i*47+now*.08)%H);const len=(30+(i%6)*16)*speed;const x=((i*113-now*.22*(2+i%3))%(W+220)+W+220)%(W+220);ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-len,y);ctx.stroke()}ctx.restore()}
+function drawFish(r,now){const e=r.e,im=images.get(`${e.tank}:${e.id}`);if(!im||r.fishing)return;const mul=sizeMul(e),baseH=H*.095*mul,sc=Math.min(W*.11/im.width,baseH/im.height),dw=im.width*sc,dh=im.height*sc;let x=screenX(r.world);if(!race.staged&& !r.finished){ // カメラ追従中は魚を主役位置に寄せる
+    x=Math.max(W*.13,Math.min(W*.82,x));
+  }
+  const y=laneY(r.i)+Math.sin(r.phase+now/210)*7;
+  ctx.save();ctx.translate(x,y);if(e.face!==1)ctx.scale(-1,1);ctx.drawImage(im,-dw/2,-dh/2,dw,dh);ctx.restore();
+  // 泳ぎの泡
+  if(!race.staged&&!r.finished){ctx.save();ctx.globalAlpha=.55;ctx.fillStyle='#dffaff';for(let j=0;j<3;j++){const bx=x-dw*.58-j*13-(now*.08+j*31)%18,by=y+((j%2)?-1:1)*dh*.16;ctx.beginPath();ctx.arc(bx,by,2+j,0,Math.PI*2);ctx.fill()}ctx.restore()}
+  ctx.textAlign='center';ctx.font=`800 ${Math.max(13,H*.020)}px sans-serif`;ctx.lineWidth=4;ctx.strokeStyle='rgba(2,20,32,.88)';ctx.fillStyle='#fff';ctx.strokeText(e.name||'(なまえなし)',x,y+dh*.68+15);ctx.fillText(e.name||'(なまえなし)',x,y+dh*.68+15);
+  if(r.foodText>0||r.hitText>0){const txt=r.foodText>0?'もぐもぐ…':'💥';ctx.font=`900 ${Math.max(13,H*.019)}px sans-serif`;ctx.fillStyle=r.foodText>0?'#ffeaa5':'#ffd0c7';ctx.fillText(txt,x,y-dh*.72-10)}
+}
+
+function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<race.startPerf)return;
+  if(state.status==='countdown')update(ref(db,'aquarium/race'),{status:'running'}).catch(()=>{});
+  const elapsed=(now-race.startPerf)/1000;
+  // レース残り30秒で一度だけ、50%の確率で「その時点のトップ」が釣られる
+  if(!race.fishingTriggered && elapsed>=RACE_SECONDS-30){
+    race.fishingTriggered=true;
+    if(race.fishingPlanned){
+      const active=race.racers.filter(r=>!r.finished);
+      if(active.length){
+        const target=active.reduce((a,b)=>a.world>=b.world?a:b);
+        target.fishing=true; target.fishT=0; target.pause=0;
+        race.fishingTarget=target;
+        race.fishingReturnAt=RACE_SECONDS-10;
+        const rrFish=rnd(hash(race.nonce,9091));
+        race.fishingReturnTop=rrFish()<0.20;
+      }
+    }
+  }
+  if(race.fishingTarget && race.fishingTarget.fishing){
+    const fr=race.fishingTarget;fr.fishT+=dt;
+    if(elapsed>=race.fishingReturnAt){
+      const others=race.racers.filter(r=>r!==fr&&!r.finished);
+      if(others.length){
+        const lead=Math.max(...others.map(r=>r.world));
+        const last=Math.min(...others.map(r=>r.world));
+        fr.world=race.fishingReturnTop ? Math.min(COURSE_SCREENS-.75,lead+.05) : Math.max(.25,last-.08);
+      }
+      fr.fishing=false;fr.fishT=0;race.fishingTarget=null;
+    }
+  }
+  for(const r of race.racers){if(r.finished||r.fishing)continue;r.foodText=Math.max(0,r.foodText-dt);r.hitText=Math.max(0,r.hitText-dt);if(r.pause>0){r.pause-=dt;continue}
+    if(elapsed-r.lastJitter>1.25){const rr=rnd(hash(race.nonce+Math.floor(elapsed*13),r.i+99));r.jitter=(rr()-.5)*.30;r.lastJitter=elapsed}
+    let v=r.base*(1+r.jitter);if(elapsed>72)v*=1.10+((4-r.i)*.008);r.world+=v*dt;
+    for(let j=0;j<r.obstacles.length;j++){if(!r.hitOb.has(j)&&r.world>=r.obstacles[j].x){r.hitOb.add(j);const rr=rnd(hash(race.nonce+j*43,r.i+101));const sizePenalty=Math.max(0,Number(r.e.grow||1)-1)*.07;if(rr()<Math.min(.80,.53+sizePenalty)){r.pause=.45+rr()*1.55;r.hitText=r.pause+.25}else r.world+=.08}}
+    for(let j=0;j<r.foods.length;j++){if(!r.hitFood.has(j)&&r.world>=r.foods[j]){r.hitFood.add(j);const rr=rnd(hash(race.nonce+j*71,r.i+201));if(rr()<.58){r.pause=1.0+rr()*2.5;r.foodText=r.pause+.4}}}
+    if(r.world>=COURSE_SCREENS-.45){r.world=COURSE_SCREENS-.45;r.finished=true;r.finishT=elapsed;race.finishOrder.push(r)}
+  }
+  // カメラは先頭集団を追う。急に飛ばず滑らかに追従
+  const active=race.racers.filter(r=>!r.finished);const lead=active.length?Math.max(...active.map(r=>r.world)):COURSE_SCREENS-.45;const target=Math.max(0,Math.min(COURSE_SCREENS-1.05,lead-.70));race.camera+= (target-race.camera)*Math.min(1,dt*2.8);
+  if(race.finishOrder.length===race.racers.length){race.finished=true;reportResults()}
+}
+async function reportResults(){if(!race||reportedNonce===race.nonce)return;reportedNonce=race.nonce;const top=race.finishOrder.slice(0,5).map((r,i)=>({rank:i+1,name:r.e.name||'(なまえなし)',id:r.e.id,tank:r.e.tank,time:Number(r.finishT.toFixed(3))}));const snap=await get(ref(db,'aquarium/race')),cur=snap.val()||{};if(cur.nonce===race.nonce&&cur.status!=='finished')await update(ref(db,'aquarium/race'),{status:'finished',results:top,total:5,finishedAt:Date.now()})}
+
+function drawCountdown(now){if(!race||race.staged)return;const left=(race.startPerf-now)/1000;if(left<=0)return;const txt=left>2.4?'3':left>1.6?'2':left>.8?'1':'START!';ctx.fillStyle='rgba(0,0,0,.38)';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.textBaseline='middle';ctx.font=`900 ${Math.min(W*.18,H*.23)}px sans-serif`;ctx.lineWidth=14;ctx.strokeStyle='#073044';ctx.fillStyle=txt==='START!'?'#ffd86b':'#fff';ctx.strokeText(txt,W/2,H/2);ctx.fillText(txt,W/2,H/2)}
+function drawWaiting(){if(!race||!race.staged)return;ctx.fillStyle='rgba(0,0,0,.36)';ctx.fillRect(W*.20,H*.04,W*.60,H*.085);ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#fff';ctx.font=`900 ${Math.max(18,H*.030)}px sans-serif`;ctx.fillText(race.racers.length===5?'5匹そろいました！ 出走待機中':'出走魚を選抜中…',W/2,H*.082)}
+function drawHud(now){if(!race||race.staged||race.finished)return;const elapsed=Math.max(0,(now-race.startPerf)/1000),remain=Math.max(0,RACE_SECONDS-elapsed);const leader=Math.max(...race.racers.map(r=>r.world));const prog=Math.max(0,Math.min(1,leader/(COURSE_SCREENS-.45)));ctx.fillStyle='rgba(0,0,0,.28)';ctx.fillRect(W*.02,H*.025,W*.34,H*.075);ctx.fillStyle='#fff';ctx.font=`800 ${Math.max(16,H*.024)}px monospace`;ctx.textAlign='left';ctx.fillText(`残り ${Math.ceil(remain)}秒`,W*.035,H*.058);ctx.fillStyle='rgba(255,255,255,.24)';ctx.fillRect(W*.035,H*.074,W*.30,H*.010);ctx.fillStyle='#8fe3d6';ctx.fillRect(W*.035,H*.074,W*.30*prog,H*.010)}
+function drawResults(){if(!race||!race.finished)return;ctx.fillStyle='rgba(1,15,25,.80)';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.fillStyle='#ffd86b';ctx.font=`900 ${Math.max(30,H*.065)}px sans-serif`;ctx.fillText('🏆 RESULT 🏆',W/2,H*.16);race.finishOrder.slice(0,5).forEach((r,i)=>{ctx.fillStyle=i===0?'#ffd86b':'#fff';ctx.font=`800 ${Math.max(17,H*(i===0?.040:.029))}px sans-serif`;ctx.fillText(`${i+1}位　${r.e.name||'(なまえなし)'}`,W/2,H*(.29+i*.105))})}
+function drawIdle(){ctx.clearRect(0,0,W,H);const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#0b7898');g.addColorStop(1,'#032737');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='rgba(255,255,255,.8)';ctx.font=`800 ${Math.max(24,H*.045)}px sans-serif`;ctx.fillText('レース管理画面で出走準備してください',W/2,H*.52)}
+
+function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;if(race){updateRace(dt,now);drawWaterBase(now);drawParallax();drawCourseObjects();drawObstacles();drawRaceFoods();drawBubbles(now);drawSpeedStreaks(now);race.racers.forEach(r=>drawFish(r,now));drawFishing(now);drawWaiting();drawCountdown(now);drawHud(now);drawResults()}else drawIdle();requestAnimationFrame(loop)}requestAnimationFrame(loop);
+</script></body></html>
