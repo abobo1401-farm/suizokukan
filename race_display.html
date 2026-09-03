@@ -10,7 +10,7 @@ const app=initializeApp(firebaseConfig),db=getDatabase(app),cv=document.getEleme
 let W=0,H=0;function resize(){W=cv.width=Math.max(1,innerWidth);H=cv.height=Math.max(1,innerHeight)}addEventListener('resize',resize);resize();
 
 /* ---------- 背景・前景の素材 ---------- */
-const ASSET_DIR='assets/';
+const ASSET_DIR='aquarium-race-assets/assets/';
 const ART={bg:null,weed:[],rock:[],pebble:[],bubble:[],stream:[]};
 let artReady=false;
 (async()=>{
