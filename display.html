@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="utf-8">
+<!-- saved from url=(0045)file:///C:/Users/abobo/Downloads/display.html -->
+<html lang="ja"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
 <title>Aquarium Display</title>
 <style>
   html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:transparent}
@@ -9,11 +9,11 @@
 </style>
 </head>
 <body>
-<canvas id="cv"></canvas>
+<canvas id="cv" width="1528" height="732" style="pointer-events: auto;"></canvas>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getDatabase, ref, onChildAdded, onChildRemoved, onValue, get, set, remove }
+import { getDatabase, ref, onChildAdded, onChildRemoved, onValue, get, set, update, remove }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 /* ============================================================
@@ -35,6 +35,9 @@ const FIXED_TANK = qs.get('tank');          // 指定があればその水槽に
 let   TANK       = FIXED_TANK || '1';
 const SHOW_NAMES = new URLSearchParams(location.search).get('names') !== '0';
 const BASE_H     = 1080;   // speed の基準解像度
+
+const app = initializeApp(firebaseConfig);
+const db  = getDatabase(app);
 
 const cv  = document.getElementById('cv');
 const ctx = cv.getContext('2d');
@@ -63,6 +66,8 @@ const baitImgs = {};
 for (const k in BAIT_IMG){ const i = new Image(); i.src = BAIT_IMG[k]; baitImgs[k] = i; }
 let bait = null;
 let banner = null;
+let customBaits = {};                      // 管理画面で登録したエサ
+onValue(ref(db, 'aquarium/baits'), s => { customBaits = s.val() || {}; });
 
 /* ---------- 投入エフェクト ---------- */
 const SOUND = new URLSearchParams(location.search).get('sound') === '1';
@@ -137,7 +142,9 @@ function drawFx(dt){
   }
 }
 
-const fishes = new Map();   // id -> fish object
+const fishes = new Map();     // id -> fish object
+const fishMeta = new Map();   // id -> { ts, size, motion }
+let detail = null;            // 拡大表示中の魚
 
 const SIZE_MUL   = { s:0.62, m:0.95, l:1.35, xl:2.05 };
 const TURN_EVERY = { fuwa:[3,9], swim:[6,18], toko:[2,7] };   // 気まぐれUターンの間隔(秒)
@@ -157,11 +164,12 @@ function makeFish(id, d, img){
     y: (d.y ?? 0.5) * H,
     dir: d.dir ?? 1,
     face: d.face ?? -1,                   // 絵が向いている方向（既定は左向き）
-    speed: (d.speed ?? 30) * (H / BASE_H) * Math.pow(0.94, Math.max(0, Math.round(Math.log(d.grow ?? 1) / Math.log(1.22)))),
+    speed: (d.speed ?? 30) * (H / BASE_H) * (d.spd ?? 1)
+           * Math.pow(0.94, Math.max(0, Math.round(Math.log(d.grow ?? 1) / Math.log(1.22)))),
     vy: (Math.random() < .5 ? -1 : 1) * (4 + Math.random() * 7) * (H / BASE_H),
     phase: Math.random() * Math.PI * 2,
     bob: (6 + Math.random() * 10) * (H / BASE_H),
-    depth, mul, grow: d.grow ?? 1, alpha: 0,
+    depth, mul, grow: d.grow ?? 1, spd: d.spd ?? 1, meals: d.meals ?? 0, alpha: 0,
     turnRange: [t0, t1],
     turnCool: t0 + Math.random() * (t1 - t0),
     drop: 0, dropped: true
@@ -169,8 +177,6 @@ function makeFish(id, d, img){
 }
 
 /* ---------- Firebase ---------- */
-const app = initializeApp(firebaseConfig);
-const db  = getDatabase(app);
 let fishRef = ref(db, `aquarium/tanks/${TANK}/fish`);
 let baitRef = ref(db, `aquarium/tanks/${TANK}/bait`);
 let offFish = [], offBait = null;
@@ -270,24 +276,42 @@ function subscribeBait(){
 /* ---------- 食べて大きくなる ---------- */
 const GROW = 1.22;   // 1回で何倍になるか
 
+const SPD  = 1.16;   // すばやさが上がる倍率
+
 function eatAndGrow(f, bx, by, k){
-  const grow = (f.grow ?? 1) * GROW;
-  f.grow = grow;
-  f.w *= GROW; f.h *= GROW; f.mul *= GROW;
-  f.speed *= 0.94;
-  f.pop = 0;
+  const bigger = Math.random() < 0.5;
+  const meals = (f.meals ?? 0) + 1;
+  f.meals = meals;
+  const upd = { meals };
+
+  if (bigger){
+    const grow = (f.grow ?? 1) * GROW;
+    f.grow = grow; upd.grow = grow;
+    f.w *= GROW; f.h *= GROW; f.mul *= GROW;
+    f.speed *= 0.94;
+    f.pop = 0;
+    f.gained = { text: 'ひとまわり大きくなった！', life: 0, color: '#ffd166' };
+  } else {
+    const sp = (f.spd ?? 1) * SPD;
+    f.spd = sp; upd.spd = sp;
+    f.speed *= SPD;
+    f.dash = 0;
+    f.gained = { text: 'すばやさが上がった！', life: 0, color: '#8fe3d6' };
+  }
+
   fx.push({ t:'ring', x:bx, y:by, life:0, dur:0.6, r0:14*k, r1:90*k });
   for (let i = 0; i < 14; i++){
-    const a = Math.random() * Math.PI * 2, sp = (60 + Math.random()*150) * k;
+    const a = Math.random() * Math.PI * 2, s2 = (60 + Math.random()*150) * k;
     fx.push({ t:'spark', x:bx, y:by, life:0, dur:0.5 + Math.random()*0.4,
-              vx: Math.cos(a)*sp, vy: Math.sin(a)*sp - 70*k, sz:(2+Math.random()*3)*k });
+              vx: Math.cos(a)*s2, vy: Math.sin(a)*s2 - 70*k, sz:(2+Math.random()*3)*k });
   }
-  if (SOUND) nomnom();
-  set(ref(db, `aquarium/tanks/${TANK}/fish/${f.id}/grow`), grow).catch(()=>{});
+  if (SOUND) nomnom(bigger);
+  gainMsg = { text: f.gained.text, color: f.gained.color, name: f.name || '', life: 0 };
+  update(ref(db, `aquarium/tanks/${TANK}/fish/${f.id}`), upd).catch(()=>{});
   remove(baitRef).catch(()=>{});
 }
 
-function nomnom(){
+function nomnom(bigger = true){
   try{
     actx = actx || new (window.AudioContext || window.webkitAudioContext)();
     if (actx.state === 'suspended') actx.resume();
@@ -303,8 +327,8 @@ function nomnom(){
     });
     const o = actx.createOscillator(), g = actx.createGain();
     o.type = 'sine';
-    o.frequency.setValueAtTime(700, t + 0.28);
-    o.frequency.exponentialRampToValueAtTime(1500, t + 0.5);
+    o.frequency.setValueAtTime(bigger ? 620 : 900, t + 0.28);
+    o.frequency.exponentialRampToValueAtTime(bigger ? 1300 : 2200, t + 0.5);
     g.gain.setValueAtTime(0.0001, t + 0.28);
     g.gain.exponentialRampToValueAtTime(0.11, t + 0.34);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
@@ -314,16 +338,22 @@ function nomnom(){
 }
 
 /* ---------- クリックで拡大表示 ---------- */
-let detail = null;   // { f, life }
-const fishMeta = new Map();   // id -> { ts, size, motion }
-
 cv.style.pointerEvents = 'auto';
 cv.addEventListener('pointerdown', e => {
   const r = cv.getBoundingClientRect();
   const px = (e.clientX - r.left) * (W / r.width);
   const py = (e.clientY - r.top)  * (H / r.height);
 
-  if (detail){ detail.closing = true; return; }
+  if (detail){
+    if (feedBtn && !detail.closing &&
+        px > feedBtn.x && px < feedBtn.x + feedBtn.w &&
+        py > feedBtn.y && py < feedBtn.y + feedBtn.h){
+      feed(detail.f);
+      return;
+    }
+    detail.closing = true;
+    return;
+  }
 
   // 手前（大きい）から順に当たり判定
   const list = [...fishes.values()].sort((a, b) => b.depth - a.depth);
@@ -337,13 +367,41 @@ cv.addEventListener('pointerdown', e => {
   }
 });
 
+let feedBtn = null;      // { x, y, w, h } 拡大中のエサボタン領域
+let feedMsg = null;      // { text, life }
+let gainMsg = null;      // 成長結果の表示
+
+function randomBait(){
+  const keys = Object.keys(customBaits);
+  if (keys.length){
+    const k = keys[Math.floor(Math.random() * keys.length)];
+    return { type: k, name: customBaits[k].name, img: customBaits[k].img };
+  }
+  const base = [['worm','ミミズ'],['apple','りんご'],['meat','おにく']];
+  const b = base[Math.floor(Math.random() * base.length)];
+  return { type: b[0], name: b[1], img: null };
+}
+
+async function feed(f){
+  const b = randomBait();
+  const payload = { type: b.type, x: 0.5, ts: Date.now(), forId: f.id };
+  if (b.img) payload.img = b.img;
+  try{
+    await set(ref(db, `aquarium/tanks/${TANK}/bait`), payload);
+    feedMsg = { text: `${b.name} をあげました`, life: 0 };
+    if (detail) detail.closing = true;
+  }catch(e){
+    feedMsg = { text: 'エサをあげられませんでした', life: 0 };
+  }
+}
+
 const SIZE_LABEL = { s:'小', m:'中', l:'大', xl:'特大' };
 const MOTION_LABEL = { fuwa:'フワフワ', swim:'スイスイ', toko:'トコトコ' };
 
 function drawDetail(dt){
-  if (!detail) return;
+  if (!detail){ feedBtn = null; return; }
   detail.life += detail.closing ? -dt * 3.5 : dt * 3.5;
-  if (detail.life <= 0 && detail.closing){ detail = null; return; }
+  if (detail.life <= 0 && detail.closing){ detail = null; feedBtn = null; return; }
   const u = Math.min(1, detail.life);
   const e = 1 - Math.pow(1 - u, 3);
   const f = detail.f;
@@ -387,8 +445,11 @@ function drawDetail(dt){
     ? `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
     : '不明';
 
+  const spd = f.spd ?? 1;
   const lines = [
     ['おおきさ', sizeTxt],
+    ['すばやさ', spd > 1.01 ? `×${spd.toFixed(2)}` : 'ふつう'],
+    ['たべたエサ', `${f.meals ?? 0} こ`],
     ['うごき',   MOTION_LABEL[m.motion] || 'スイスイ'],
     ['えがかれた日', dateTxt]
   ];
@@ -403,11 +464,41 @@ function drawDetail(dt){
     ctx.fillText(t, W / 2, y);
   });
 
-  ctx.font = `500 ${Math.round(19 * k)}px "Hiragino Maru Gothic ProN",sans-serif`;
+  ctx.restore();
+
+  // エサをあげるボタン
+  const bw = 300 * k, bh = 68 * k;
+  const bx = W / 2 - bw / 2, by = baseY + 248 * k;
+  feedBtn = detail.closing ? null : { x: bx, y: by, w: bw, h: bh };
+  ctx.save();
+  ctx.globalAlpha = e;
+  const rr = 18 * k;
+  ctx.beginPath();
+  ctx.moveTo(bx + rr, by);
+  ctx.arcTo(bx + bw, by, bx + bw, by + bh, rr);
+  ctx.arcTo(bx + bw, by + bh, bx, by + bh, rr);
+  ctx.arcTo(bx, by + bh, bx, by, rr);
+  ctx.arcTo(bx, by, bx + bw, by, rr);
+  ctx.closePath();
+  ctx.fillStyle = '#ff7a5c';
+  ctx.fill();
+  ctx.lineWidth = 3 * k;
+  ctx.strokeStyle = 'rgba(255,255,255,.55)';
+  ctx.stroke();
+  ctx.fillStyle = '#2a0a04';
+  ctx.font = `800 ${Math.round(27 * k)}px "Hiragino Maru Gothic ProN",sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('🍎 エサをあげる', W / 2, by + bh / 2);
+  ctx.restore();
+
+  ctx.save();
   ctx.globalAlpha = e * 0.6;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.font = `500 ${Math.round(19 * k)}px "Hiragino Maru Gothic ProN",sans-serif`;
+  ctx.lineWidth = 5 * k;
   ctx.strokeStyle = 'rgba(2,20,32,.9)';
   ctx.fillStyle = '#ffffff';
-  const cl = 'クリックでとじる';
+  const cl = 'そのほかの場所をクリックでとじる';
   ctx.strokeText(cl, W / 2, H - 42 * k);
   ctx.fillText(cl, W / 2, H - 42 * k);
   ctx.restore();
@@ -562,6 +653,11 @@ function loop(now){
       yOff = Math.sin(f.phase) * f.bob * (chasing ? 0.45 : 1);
     }
     if (nibbling){ yOff += Math.sin(f.nib) * f.h * 0.04; rot += Math.sin(f.nib * 0.5) * 0.06; }
+    if (f.dash !== undefined && f.dash < 1){
+      f.dash = Math.min(1, f.dash + dt * 1.2);
+      const w2 = 1 + Math.sin(f.dash * Math.PI) * 0.22;
+      sx *= w2; sy /= w2;
+    }
     if (f.pop !== undefined && f.pop < 1){
       f.pop = Math.min(1, f.pop + dt * 1.8);
       const p = 1 + Math.sin(f.pop * Math.PI) * 0.28;
@@ -600,6 +696,56 @@ function loop(now){
   drawFx(dt);
   drawDetail(dt);
 
+  // たべた結果
+  if (gainMsg){
+    gainMsg.life += dt;
+    const u = gainMsg.life / 2.8;
+    if (u >= 1) gainMsg = null;
+    else {
+      const k = H / BASE_H;
+      const a = u < 0.1 ? u / 0.1 : (u > 0.72 ? (1 - u) / 0.28 : 1);
+      const rise = Math.min(1, u / 0.25);
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, a));
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const y = H * 0.30 - rise * 22 * k;
+      if (gainMsg.name){
+        ctx.font = `700 ${Math.round(24 * k)}px "Hiragino Maru Gothic ProN",sans-serif`;
+        ctx.lineWidth = 6 * k; ctx.strokeStyle = 'rgba(2,20,32,.85)';
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeText(gainMsg.name, W / 2, y - 34 * k);
+        ctx.fillText(gainMsg.name, W / 2, y - 34 * k);
+      }
+      ctx.font = `800 ${Math.round(40 * k)}px "Hiragino Maru Gothic ProN",sans-serif`;
+      ctx.lineWidth = 9 * k; ctx.strokeStyle = 'rgba(2,20,32,.9)';
+      ctx.fillStyle = gainMsg.color;
+      ctx.strokeText(gainMsg.text, W / 2, y);
+      ctx.fillText(gainMsg.text, W / 2, y);
+      ctx.restore();
+    }
+  }
+
+  // エサをあげた通知
+  if (feedMsg){
+    feedMsg.life += dt;
+    const u = feedMsg.life / 2.4;
+    if (u >= 1) feedMsg = null;
+    else {
+      const k = H / BASE_H;
+      const a = u < 0.12 ? u / 0.12 : (u > 0.7 ? (1 - u) / 0.3 : 1);
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, a));
+      ctx.font = `800 ${Math.round(30 * k)}px "Hiragino Maru Gothic ProN",sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.lineWidth = 7 * k;
+      ctx.strokeStyle = 'rgba(2,20,32,.85)';
+      ctx.fillStyle = '#ffd166';
+      ctx.strokeText(feedMsg.text, W / 2, H * 0.16);
+      ctx.fillText(feedMsg.text, W / 2, H * 0.16);
+      ctx.restore();
+    }
+  }
+
   // 水槽切り替えの表示
   if (banner){
     banner.life += dt;
@@ -625,5 +771,6 @@ function loop(now){
 }
 requestAnimationFrame(loop);
 </script>
-</body>
-</html>
+
+
+</body></html>
