@@ -42,10 +42,17 @@ const db  = getDatabase(app);
 const cv  = document.getElementById('cv');
 const ctx = cv.getContext('2d');
 let W = 0, H = 0;
+// 魚が泳ぐ範囲（画面中央の正方形）
+let AX = 0, AY = 0, AS = 0;
+const ax = t => AX + AS * t;          // 範囲内の横位置（0〜1）
+const ay = t => AY + AS * t;          // 範囲内の縦位置（0〜1）
 function resize(){
   const dpr = 1;                       // OBSは等倍でよい（負荷軽減）
   W = cv.width  = Math.floor(window.innerWidth  * dpr);
   H = cv.height = Math.floor(window.innerHeight * dpr);
+  AS = Math.min(W, H);
+  AX = (W - AS) / 2;
+  AY = (H - AS) / 2;
 }
 window.addEventListener('resize', resize);
 resize();
@@ -153,22 +160,22 @@ function makeFish(id, d, img){
   const motion = d.motion || 'swim';
   const depth  = d.scale ?? 1;
   const mul    = (SIZE_MUL[d.size] ?? SIZE_MUL.m) * (d.grow ?? 1);
-  const k = (H / BASE_H) * mul * depth;
+  const k = (AS / BASE_H) * mul * depth;
   const w = img.width  * k;
   const h = img.height * k;
   let [t0, t1] = TURN_EVERY[motion] || TURN_EVERY.swim;
   if (d.size === 'xl'){ t0 *= 2.2; t1 *= 2.2; }
   return {
     id, img, motion, name: d.name || '', w, h,
-    x: Math.random() * Math.max(1, W - w),
-    y: (d.y ?? 0.5) * H,
+    x: AX + Math.random() * Math.max(1, AS - w),
+    y: ay(d.y ?? 0.5),
     dir: d.dir ?? 1,
     face: d.face ?? -1,                   // 絵が向いている方向（既定は左向き）
-    speed: (d.speed ?? 30) * (H / BASE_H) * (d.spd ?? 1)
+    speed: (d.speed ?? 30) * (AS / BASE_H) * (d.spd ?? 1)
            * Math.pow(0.94, Math.max(0, Math.round(Math.log(d.grow ?? 1) / Math.log(1.22)))),
-    vy: (Math.random() < .5 ? -1 : 1) * (4 + Math.random() * 7) * (H / BASE_H),
+    vy: (Math.random() < .5 ? -1 : 1) * (4 + Math.random() * 7) * (AS / BASE_H),
     phase: Math.random() * Math.PI * 2,
-    bob: (6 + Math.random() * 10) * (H / BASE_H),
+    bob: (6 + Math.random() * 10) * (AS / BASE_H),
     depth, mul, grow: d.grow ?? 1, spd: d.spd ?? 1, meals: d.meals ?? 0, alpha: 0,
     turnRange: [t0, t1],
     turnCool: t0 + Math.random() * (t1 - t0),
@@ -190,6 +197,7 @@ async function addFish(id, d){
   try { await img.decode(); } catch { return; }   // ← 画像が確実に読めてから登録
   if (fishes.has(id)) return;
   const f = makeFish(id, d, img);
+  f.y = Math.max(AY + f.h / 2, Math.min(AY + AS - f.h / 2, f.y));   // 上下がはみ出さないように
   fishMeta.set(id, { ts: d.ts, size: d.size || 'm', motion: d.motion || 'swim' });
   if (ready){                                     // 新しく投入された魚だけ演出する
     f.landY = f.y;
@@ -260,13 +268,13 @@ function subscribeBait(){
     type: v.type, ts: v.ts, forId: v.forId || null,
     imgKey: v.img ? ('custom:' + v.ts) : v.type,
     eaten: false,
-    x: (v.x ?? 0.5) * W,
-    y: -0.15 * H,
+    x: ax(v.x ?? 0.5),
+    y: AY - 0.15 * AS,
     landY: (() => {
       const tf = v.forId ? fishes.get(v.forId) : null;
-      if (tf) return Math.max(H * 0.1, Math.min(H * 0.85, tf.y));
+      if (tf) return Math.max(ay(0.1), Math.min(ay(0.85), tf.y));
       const b = (BAIT_INFO[v.type] || BAIT_INFO.worm).band;
-      return (b[0] + Math.random() * (b[1] - b[0])) * H; })(),
+      return ay(b[0] + Math.random() * (b[1] - b[0])); })(),
     age: 0, alpha: 0, dying: false, cleared: false,
     phase: Math.random() * 6.28
   };
@@ -521,7 +529,7 @@ function loop(now){
       bait.y = Math.min(bait.landY, bait.y + info.fall * k * dt);
       if (bait.y >= bait.landY && !bait.splashed){ bait.splashed = true; splash(bait.x, bait.y, k); }
     } else if (info.sink && !bait.forId){
-      bait.y = Math.min(H * 0.88, bait.y + info.sink * k * dt);
+      bait.y = Math.min(ay(0.88), bait.y + info.sink * k * dt);
     }
     bait.phase += dt * 1.3;
     if (bait.age > BAIT_LIFE && !bait.dying){
@@ -568,7 +576,7 @@ function loop(now){
       f.drop += dt / 0.75;
       if (f.drop >= 1){
         f.drop = 1; f.dropped = true; f.y = f.landY;
-        splash(f.x + f.w / 2, f.landY, (H / BASE_H) * f.mul);
+        splash(f.x + f.w / 2, f.landY, (AS / BASE_H) * f.mul);
       } else {
         const e = 1 - Math.pow(1 - f.drop, 3);
         f.y = -f.h * 0.8 + (f.landY + f.h * 0.8) * e;
@@ -600,7 +608,7 @@ function loop(now){
       f.x += (dx / dist) * sp * ease * dt;
       if (f.motion !== 'toko' || baitFor){
         f.y += (dy / dist) * sp * ease * dt;
-        f.y = Math.max(H * 0.05, Math.min(H * 0.9, f.y));
+        f.y = Math.max(AY + f.h / 2, Math.min(AY + AS - f.h / 2, f.y));
       }
       if (Math.abs(dx) > 3 * k) f.dir = dx > 0 ? 1 : -1;
       if (dist < 90 * k){
@@ -613,11 +621,11 @@ function loop(now){
           }
         }
       }
-      f.x = Math.max(-f.w * 0.15, Math.min(W - f.w * 0.85, f.x));
+      f.x = Math.max(AX, Math.min(AX + AS - f.w, f.x));
     } else {
       f.x += f.speed * f.dir * dt;
-      if (f.x < -f.w * 0.15){ f.x = -f.w * 0.15; f.dir = 1; }
-      if (f.x > W - f.w * 0.85){ f.x = W - f.w * 0.85; f.dir = -1; }
+      if (f.x < AX){ f.x = AX; f.dir = 1; }
+      if (f.x > AX + AS - f.w){ f.x = AX + AS - f.w; f.dir = -1; }
 
       // 気まぐれUターン
       f.turnCool -= dt;
@@ -635,8 +643,9 @@ function loop(now){
       f.phase += dt * 0.65;
       if (!chasing){
         f.y += f.vy * dt;
-        if (f.y < H * 0.06){ f.y = H * 0.06; f.vy = Math.abs(f.vy); }
-        if (f.y > H * 0.66){ f.y = H * 0.66; f.vy = -Math.abs(f.vy); }
+        const yMin = AY + f.h / 2 + f.bob * 2.4, yMax = AY + AS * 0.72 - f.h / 2;
+        if (f.y < yMin){ f.y = yMin; f.vy = Math.abs(f.vy); }
+        if (f.y > yMax){ f.y = yMax; f.vy = -Math.abs(f.vy); }
       }
       yOff = Math.sin(f.phase) * f.bob * (chasing ? 0.5 : 2.4);
       sy = 1 + Math.sin(f.phase * 2) * 0.08;
@@ -680,7 +689,7 @@ function loop(now){
     if (SHOW_NAMES && f.name){
       ctx.save();
       ctx.globalAlpha = f.alpha;
-      const fs = Math.max(13, Math.round(20 * (H / BASE_H) * f.depth));
+      const fs = Math.max(13, Math.round(20 * (AS / BASE_H) * f.depth));
       ctx.font = `700 ${fs}px "Hiragino Maru Gothic ProN","Hiragino Sans",sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
