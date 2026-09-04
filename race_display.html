@@ -42,17 +42,18 @@ let artReady=false;
   }catch(e){console.warn('素材を読み込めませんでした',e)}
 })();
 
+const MAX_RACERS=5, MIN_RACERS=2;
 const RACE_SECONDS=90;
 const COURSE_SCREENS=18; // 18画面ぶんの長いコース
 let state={status:'idle'},race=null,last=performance.now(),reportedNonce=null;
 const images=new Map();
 function hash(n,i){let x=(Number(n)||1)^(i*0x9e3779b9);x=Math.imul(x^(x>>>16),0x21f0aaad);x=Math.imul(x^(x>>>15),0x735a2d97);return(x^(x>>>15))>>>0}
 function rnd(seed){let x=seed>>>0;return()=>{x+=0x6D2B79F5;let t=x;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296}}
-async function prepEntrants(arr){await Promise.all((arr||[]).slice(0,5).map(async e=>{const k=`${e.tank}:${e.id}`;if(images.has(k))return;const im=new Image();im.src=e.img;try{await im.decode();images.set(k,im)}catch{}}))}
+async function prepEntrants(arr){await Promise.all((arr||[]).slice(0,MAX_RACERS).map(async e=>{const k=`${e.tank}:${e.id}`;if(images.has(k))return;const im=new Image();im.src=e.img;try{await im.decode();images.set(k,im)}catch{}}))}
 
 onValue(ref(db,'aquarium/race'),async s=>{
   const v=s.val()||{status:'idle'}; state=v;
-  const entrants=(v.entrants||[]).slice(0,5); await prepEntrants(entrants);
+  const entrants=(v.entrants||[]).slice(0,MAX_RACERS); await prepEntrants(entrants);
   if(v.status==='staged')race=makeRace(v,entrants,true);
   else if((v.status==='countdown'||v.status==='running')&&(!race||race.nonce!==v.nonce))race=makeRace(v,entrants,false);
   else if(v.status==='idle')race=null;
@@ -102,7 +103,15 @@ function makeRace(v,entrants,staged){
 }
 
 function sizeMul(e){const base={s:.72,m:1,l:1.16,xl:1.30}[e.size]||1;const g=Math.max(.70,Math.min(1.52,1+(Number(e.grow||1)-1)*.42));return base*g}
-function laneY(i){const top=H*.20,bottom=H*.82;return top+(bottom-top)*(i+.5)/5}
+function laneY(i){
+  const n=race?race.racers.length:5;
+  const top=H*.20,bottom=H*.82;
+  if(n<=1)return (top+bottom)/2;
+  // 2〜3匹のときは間延びしないよう中央寄せに
+  const span=(bottom-top)*(n>=4?1:n===3?.82:.56);
+  const c=(top+bottom)/2;
+  return c-span/2+span*(i+.5)/n;
+}
 function screenX(world){return (world-race.camera)*W}
 
 function drawSprite(list,idx,cx,cy,targetH,flip,alpha){
@@ -244,7 +253,7 @@ function drawRaceFoods(){
 const DROP_TIME=0.85;
 const DASH_TIME=2.2;        // 赤りんごのダッシュ時間
 const FINALE_AT=10;         // 残り何秒でラストイベントを起こすか
-const MASS_FISH_CHANCE=0.10;  // ラスト10秒に最下位以外が全員釣られる確率
+const MASS_FISH_CHANCE=0.20;  // ラスト10秒に最下位以外が全員釣られる確率
 const GOLD_CHANCE=0.10;       // ラスト10秒に最下位へ金のりんごが出る確率
 const splashes=[];
 function goldBurst(x,y){
@@ -419,7 +428,7 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
         race.fishingTarget=target;
         race.fishingReturnAt=RACE_SECONDS-10;
         const rrFish=rnd(hash(race.nonce,9091));
-        race.fishingReturnTop=rrFish()<0.20;
+        race.fishingReturnTop=rrFish()<0.50;   // 50%で1位の位置、50%で最下位
       }
     }
   }
@@ -435,7 +444,7 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
       // 最下位の少し前に金のりんごを出す。触れたら発動
       race.goldApple={owner:lastOne,x:lastOne.world+.32,taken:false,t:0};
     }
-    if(massHit && active.length>=2){
+    if(massHit && active.length>=3){
       for(const r of active){
         if(r===lastOne)continue;
         r.fishing=true;r.fishT=0;r.pause=0;r.massFished=true;
@@ -468,7 +477,7 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
       if(others.length){
         const lead=Math.max(...others.map(r=>r.world));
         const last=Math.min(...others.map(r=>r.world));
-        fr.world=race.fishingReturnTop ? Math.min(COURSE_SCREENS-.75,lead+.05) : Math.max(.25,last-.08);
+        fr.world=race.fishingReturnTop ? Math.min(COURSE_SCREENS-.75,lead) : Math.max(.25,last-.08);
       }
       fr.fishing=false;fr.fishT=0;race.fishingTarget=null;
       // 上から落ちてきて水しぶきを上げる
@@ -487,7 +496,7 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
   }
   for(const r of race.racers){if(r.finished||r.fishing||r.dropping)continue;r.foodText=Math.max(0,r.foodText-dt);r.hitText=Math.max(0,r.hitText-dt);if(r.pause>0){r.pause-=dt;continue}
     if(elapsed-r.lastJitter>1.25){const rr=rnd(hash(race.nonce+Math.floor(elapsed*13),r.i+99));r.jitter=(rr()-.5)*.30;r.lastJitter=elapsed}
-    let v=r.base*(1+r.jitter);if(elapsed>72)v*=1.10+((4-r.i)*.008);
+    let v=r.base*(1+r.jitter);if(elapsed>72)v*=1.10+((race.racers.length-1-r.i)*.008);
     if(r.dash>0){r.dash-=dt;r.dashText=Math.max(0,r.dashText-dt);v*=2.35}
     if(r.golden){r.goldT+=dt;v*=3.6}
     r.world+=v*dt;
@@ -513,12 +522,13 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
   race.camera+=(race.camTarget-race.camera)*Math.min(1,dt*2.8);
   if(race.finishOrder.length===race.racers.length){race.finished=true;reportResults()}
 }
-async function reportResults(){if(!race||reportedNonce===race.nonce)return;reportedNonce=race.nonce;const top=race.finishOrder.slice(0,5).map((r,i)=>({rank:i+1,name:r.e.name||'(なまえなし)',id:r.e.id,tank:r.e.tank,time:Number(r.finishT.toFixed(3))}));const snap=await get(ref(db,'aquarium/race')),cur=snap.val()||{};if(cur.nonce===race.nonce&&cur.status!=='finished')await update(ref(db,'aquarium/race'),{status:'finished',results:top,total:5,finishedAt:Date.now()})}
+async function reportResults(){if(!race||reportedNonce===race.nonce)return;reportedNonce=race.nonce;const top=race.finishOrder.slice(0,MAX_RACERS).map((r,i)=>({rank:i+1,name:r.e.name||'(なまえなし)',id:r.e.id,tank:r.e.tank,time:Number(r.finishT.toFixed(3))}));const snap=await get(ref(db,'aquarium/race')),cur=snap.val()||{};if(cur.nonce===race.nonce&&cur.status!=='finished')await update(ref(db,'aquarium/race'),{status:'finished',results:top,total:race.racers.length,finishedAt:Date.now()})}
 
 function drawCountdown(now){if(!race||race.staged)return;const left=(race.startPerf-now)/1000;if(left<=0)return;const txt=left>2.4?'3':left>1.6?'2':left>.8?'1':'START!';ctx.fillStyle='rgba(0,0,0,.38)';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.textBaseline='middle';ctx.font=`900 ${Math.min(W*.18,H*.23)}px sans-serif`;ctx.lineWidth=14;ctx.strokeStyle='#073044';ctx.fillStyle=txt==='START!'?'#ffd86b':'#fff';ctx.strokeText(txt,W/2,H/2);ctx.fillText(txt,W/2,H/2)}
-function drawWaiting(){if(!race||!race.staged)return;ctx.fillStyle='rgba(0,0,0,.36)';ctx.fillRect(W*.20,H*.04,W*.60,H*.085);ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#fff';ctx.font=`900 ${Math.max(18,H*.030)}px sans-serif`;ctx.fillText(race.racers.length===5?'5匹そろいました！ 出走待機中':'出走魚を選抜中…',W/2,H*.082)}
+function drawWaiting(){if(!race||!race.staged)return;ctx.fillStyle='rgba(0,0,0,.36)';ctx.fillRect(W*.20,H*.04,W*.60,H*.085);ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#fff';ctx.font=`900 ${Math.max(18,H*.030)}px sans-serif`;ctx.fillText(race.racers.length>=MIN_RACERS?`${race.racers.length}匹で出走待機中`:'出走魚を選抜中…',W/2,H*.082)}
 function drawHud(now){if(!race||race.staged||race.finished)return;const elapsed=Math.max(0,(now-race.startPerf)/1000),remain=Math.max(0,RACE_SECONDS-elapsed);const leader=Math.max(...race.racers.map(r=>r.world));const prog=Math.max(0,Math.min(1,leader/(COURSE_SCREENS-.45)));ctx.fillStyle='rgba(0,0,0,.28)';ctx.fillRect(W*.02,H*.025,W*.34,H*.075);ctx.fillStyle='#fff';ctx.font=`800 ${Math.max(16,H*.024)}px monospace`;ctx.textAlign='left';ctx.fillText(`残り ${Math.ceil(remain)}秒`,W*.035,H*.058);ctx.fillStyle='rgba(255,255,255,.24)';ctx.fillRect(W*.035,H*.074,W*.30,H*.010);ctx.fillStyle='#8fe3d6';ctx.fillRect(W*.035,H*.074,W*.30*prog,H*.010)}
-function drawResults(){if(!race||!race.finished)return;ctx.fillStyle='rgba(1,15,25,.78)';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.fillStyle='#ffd86b';ctx.font=`900 ${Math.max(30,H*.065)}px sans-serif`;ctx.fillText('🏆 RESULT 🏆',W/2,H*.16);race.finishOrder.slice(0,5).forEach((r,i)=>{ctx.fillStyle=i===0?'#ffd86b':'#fff';ctx.font=`800 ${Math.max(17,H*(i===0?.040:.029))}px sans-serif`;ctx.fillText(`${i+1}位　${r.e.name||'(なまえなし)'}`,W/2,H*(.29+i*.105))})}
+function drawResults(){if(!race||!race.finished)return;ctx.fillStyle='rgba(1,15,25,.78)';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.fillStyle='#ffd86b';ctx.font=`900 ${Math.max(30,H*.065)}px sans-serif`;ctx.fillText('🏆 RESULT 🏆',W/2,H*.16);const n=race.finishOrder.length,gap=n<=3?.135:.105;
+  race.finishOrder.forEach((r,i)=>{ctx.fillStyle=i===0?'#ffd86b':'#fff';ctx.font=`800 ${Math.max(17,H*(i===0?.044:.031))}px sans-serif`;ctx.fillText(`${i+1}位　${r.e.name||'(なまえなし)'}`,W/2,H*(.30+i*gap))})}
 function drawIdle(){ctx.clearRect(0,0,W,H);
   if(artReady&&ART.bg){const im=ART.bg,sc=H/im.height,tw=im.width*sc;for(let x=0;x<W+1;x+=tw)ctx.drawImage(im,x,0,tw+1,H);ctx.fillStyle='rgba(2,25,40,.35)';ctx.fillRect(0,0,W,H);}
   else{const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#0b7898');g.addColorStop(1,'#032737');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);}ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='rgba(255,255,255,.8)';ctx.font=`800 ${Math.max(24,H*.045)}px sans-serif`;ctx.fillText('レース管理画面で出走準備してください',W/2,H*.52)}
