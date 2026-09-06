@@ -7,12 +7,29 @@
 <style>
 :root{--abyss:#031b2a;--deep:#073a52;--foam:#8fe3d6;--sand:#f5ead4;--coral:#ff8166;--gold:#ffd86b;--ink:#031722}
 *{box-sizing:border-box}body{margin:0;min-height:100vh;padding:16px 14px 50px;background:linear-gradient(180deg,var(--deep),var(--abyss) 70%);color:var(--sand);font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",system-ui,sans-serif}h1{margin:0;font-size:22px;letter-spacing:.08em}.sub{margin:5px 0 16px;font-size:12px;opacity:.72;line-height:1.65}.panel{background:rgba(255,255,255,.07);border:1px solid rgba(143,227,214,.25);border-radius:16px;padding:13px;margin-bottom:14px}.panel h2{font-size:14px;margin:0 0 10px;letter-spacing:.08em}.actions,.tabs{display:flex;gap:8px;flex-wrap:wrap}.btn,.tab{border:0;border-radius:11px;padding:10px 14px;font:700 13px inherit;cursor:pointer;background:rgba(255,255,255,.13);color:var(--sand)}.btn.primary,.tab.on{background:var(--foam);color:var(--ink)}.btn.start{background:var(--gold);color:#3b2a00;font-size:15px}.btn.danger{background:var(--coral);color:#32110b}.btn:disabled{opacity:.35;cursor:not-allowed}.status{font-size:13px;line-height:1.7}.url{font-size:11px;word-break:break-all;opacity:.7;background:rgba(0,0,0,.2);padding:9px 10px;border-radius:9px;margin-top:10px}.selected{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}.slot{min-height:118px;border:2px dashed rgba(143,227,214,.25);border-radius:13px;padding:8px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;min-width:0}.slot.filled{border-style:solid;background:rgba(143,227,214,.08)}.slot img{max-width:100%;height:55px;object-fit:contain}.slot .lane{font-size:10px;opacity:.55}.slot .nm{font-size:12px;font-weight:800;word-break:break-all;line-height:1.3}.slot button{border:0;background:rgba(255,255,255,.12);color:var(--sand);border-radius:8px;padding:5px 8px;font:600 10px inherit;cursor:pointer}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(135px,1fr));gap:9px}.card{position:relative;border:2px solid transparent;background:rgba(255,255,255,.065);border-radius:14px;padding:9px;cursor:pointer;min-width:0}.card.sel{border-color:var(--gold);background:rgba(255,216,107,.12)}.card.disabled{opacity:.4;cursor:not-allowed}.thumb{height:84px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.16);overflow:hidden}.thumb img{max-width:100%;max-height:80px}.nm{font-size:12px;font-weight:800;text-align:center;margin-top:7px;word-break:break-all}.meta{font-size:10px;text-align:center;opacity:.62;margin-top:4px}.badge{position:absolute;right:7px;top:7px;background:var(--gold);color:#352500;border-radius:999px;min-width:25px;height:25px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900}.empty{text-align:center;padding:28px 10px;opacity:.55;font-size:13px}.result{font-weight:800}.result ol{margin:8px 0 0;padding-left:25px}.live{color:var(--gold)}
+.abil{text-align:center;font-size:11px;font-weight:700;color:var(--gold);margin-top:5px;line-height:1.35;min-height:20px}
+.abil .none{font-size:10px;opacity:.35;letter-spacing:0}
+.card .edit{width:100%;margin-top:7px;border:0;border-radius:9px;padding:6px;font:700 11px inherit;background:rgba(255,255,255,.13);color:var(--sand);cursor:pointer}
+.card .edit:hover{background:rgba(143,227,214,.25)}
+.slot .abil{font-size:10px;margin:2px 0}
+.overlay{position:fixed;inset:0;background:rgba(2,14,22,.82);display:flex;align-items:center;justify-content:center;padding:18px;z-index:50}
+.dlg{background:#0a3245;border:2px solid rgba(143,227,214,.35);border-radius:18px;padding:16px;max-width:460px;width:100%;max-height:88vh;overflow:auto}
+.dlg h3{margin:0 0 4px;font-size:17px}
+.dlg .hint{margin:0 0 12px;font-size:11px;opacity:.6}
+.ablist{display:flex;flex-direction:column;gap:7px}
+.ab{display:flex;align-items:center;gap:8px;text-align:left;border:2px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);border-radius:12px;padding:9px 11px;cursor:pointer;color:var(--sand);font-family:inherit;width:100%}
+.ab.on{border-color:var(--gold);background:rgba(255,216,107,.15)}
+.ab .tx{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ab .tx b{font-size:13px}
+.ab .tx em{font-style:normal;font-size:11px;opacity:.62}
+.dlgbtns{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.dlgbtns .btn{flex:1;min-width:96px}
 @media(max-width:600px){.selected{grid-template-columns:repeat(2,minmax(0,1fr))}.slot:nth-child(odd):last-child{grid-column:1/-1}.btn,.tab{min-height:44px}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
 </head>
 <body>
 <h1>🏁 水族館レース 管理</h1>
-<p class="sub">出走数を選んでからお魚を選抜します。2匹のタイマンから5匹まで対応。出走セットするとOBS側でスタート位置に待機し、カウントダウン後に長いスクロールコースを約1分30秒で競争します。</p>
+<p class="sub">お魚には特殊能力があります（描いた時点で自動で決まり、あとから変更できます）。出走数を選んでからお魚を選抜します。2匹のタイマンから5匹まで対応。出走セットするとOBS側でスタート位置に待機し、カウントダウン後に長いスクロールコースを約1分30秒で競争します。</p>
 
 <div class="panel">
   <h2>出走メンバー <span id="count">0 / 5</span></h2>
@@ -37,11 +54,35 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getDatabase, ref, get, set, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { getDatabase, ref, get, set, update, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 /* ★ draw.html / admin.html と同じ Firebase 設定を貼り付けてください */
 const firebaseConfig={apiKey:"★ここにAPIキー★",authDomain:"utaoshi-ringo.firebaseapp.com",databaseURL:"https://utaoshi-ringo-default-rtdb.asia-southeast1.firebasedatabase.app",projectId:"utaoshi-ringo",storageBucket:"utaoshi-ringo.appspot.com",messagingSenderId:"★★★",appId:"★★★"};
 const app=initializeApp(firebaseConfig),db=getDatabase(app);
+const ABILITIES={
+  ganjou:  {name:'がんじょう',   desc:'障害物で止まらない'},
+  taishoku:{name:'たいしょく',   desc:'エサで足止めされない'},
+  surinuke:{name:'すりぬけ',     desc:'釣り針から50%で逃げる'},
+  rocket:  {name:'ロケット',     desc:'スタート3秒間ダッシュ'},
+  makezu:  {name:'まけずぎらい', desc:'負けているほど加速していく'},
+  oikomi:  {name:'おいこみ',     desc:'ラスト15秒で加速'},
+  gurume:  {name:'ダッシュ',     desc:'赤りんごの効果が強い'},
+  lucky:   {name:'幸運',         desc:'金のりんごが出やすい'}
+};
+const ABILITY_KEYS=Object.keys(ABILITIES);
+function strHash(str,salt){
+  let x=2166136261>>>0;const s2=String(str)+'|'+salt;
+  for(let i=0;i<s2.length;i++){x^=s2.charCodeAt(i);x=Math.imul(x,16777619)>>>0}
+  return x>>>0;
+}
+function autoAbilities(fid){
+  const n=[0,1,1,1,2,2][strHash(fid,'n')%6];
+  return ABILITY_KEYS.slice().sort((a,b)=>strHash(fid,a)-strHash(fid,b)).slice(0,n);
+}
+function abilitiesOf(f){
+  if(Array.isArray(f.abilities))return f.abilities.filter(k=>ABILITIES[k]);
+  return autoAbilities(f.id||'');
+}
 let MAX=5; let allFish=[],selected=[],filterTank='all';
 function renderSizeTabs(){
   const box=$('sizeTabs');box.innerHTML='';
@@ -69,16 +110,63 @@ function renderSelected(){
   const sel=$('selected');
   sel.style.gridTemplateColumns=`repeat(${Math.min(MAX,5)},minmax(0,1fr))`;
   sel.innerHTML='';
-  for(let i=0;i<MAX;i++){const f=selected[i],d=document.createElement('div');d.className='slot'+(f?' filled':'');if(f){d.innerHTML=`<div class="lane">${i+1}コース</div><img src="${f.img}" alt=""><div class="nm">${esc(f.name||'(なまえなし)')}</div><button type="button">解除</button>`;d.querySelector('button').onclick=()=>{selected.splice(i,1);renderSelected();renderGrid();syncStaged()}}else d.innerHTML=`<div class="lane">${i+1}コース</div><div style="opacity:.35;font-size:24px">🐟</div><div class="nm" style="opacity:.45">未選択</div>`;$('selected').appendChild(d)}$('count').textContent=`${selected.length} / ${MAX}`;
+  for(let i=0;i<MAX;i++){const f=selected[i],d=document.createElement('div');d.className='slot'+(f?' filled':'');if(f){const ab=abilitiesOf(f);
+      d.innerHTML=`<div class="lane">${i+1}コース</div><img src="${f.img}" alt=""><div class="nm">${esc(f.name||'(なまえなし)')}</div>`
+        +`<div class="abil">${ab.length?ab.map(k=>ABILITIES[k].name).join('・'):'<span class="none">-</span>'}</div>`
+        +`<button type="button">解除</button>`;d.querySelector('button').onclick=()=>{selected.splice(i,1);renderSelected();renderGrid();syncStaged()}}else d.innerHTML=`<div class="lane">${i+1}コース</div><div style="opacity:.35;font-size:24px">🐟</div><div class="nm" style="opacity:.45">未選択</div>`;$('selected').appendChild(d)}$('count').textContent=`${selected.length} / ${MAX}`;
   $('startBtn').disabled=selected.length!==MAX;
   $('startBtn').textContent=`🏁 この${MAX}匹でレース開始`;}
-function renderGrid(){const list=filterTank==='all'?allFish:allFish.filter(f=>f.tank===Number(filterTank));$('grid').innerHTML='';if(!list.length){$('grid').innerHTML='<div class="empty">この水槽には出走できるお魚がいません</div>';return}for(const f of list){const idx=selected.findIndex(x=>x.key===f.key),full=selected.length>=MAX&&idx<0,c=document.createElement('div');c.className='card'+(idx>=0?' sel':'')+(full?' disabled':'');c.innerHTML=`<div class="thumb"><img src="${f.img}" alt=""></div><div class="nm">${esc(f.name||'(なまえなし)')}</div><div class="meta">水槽${f.tank}　速さ×${Number(f.spd??1).toFixed(2)}</div>${idx>=0?`<div class="badge">${idx+1}</div>`:''}`;c.onclick=()=>{const now=selected.findIndex(x=>x.key===f.key);if(now>=0)selected.splice(now,1);else if(selected.length<MAX)selected.push(f);renderSelected();renderGrid();syncStaged()};$('grid').appendChild(c)}}
-function currentEntrants(){return selected.map((f,i)=>({lane:i+1,id:f.id,tank:f.tank,name:f.name||'(なまえなし)',img:f.img,spd:Number(f.spd??1),grow:Number(f.grow??1),size:f.size||'m',face:Number(f.face??-1)}));}
+function renderGrid(){const list=filterTank==='all'?allFish:allFish.filter(f=>f.tank===Number(filterTank));$('grid').innerHTML='';if(!list.length){$('grid').innerHTML='<div class="empty">この水槽には出走できるお魚がいません</div>';return}for(const f of list){const idx=selected.findIndex(x=>x.key===f.key),full=selected.length>=MAX&&idx<0,c=document.createElement('div');c.className='card'+(idx>=0?' sel':'')+(full?' disabled':'');const ab=abilitiesOf(f);
+    c.innerHTML=`<div class="thumb"><img src="${f.img}" alt=""></div><div class="nm">${esc(f.name||'(なまえなし)')}</div>`
+      +`<div class="abil">${ab.length?ab.map(k=>`<span title="${ABILITIES[k].desc}">${ABILITIES[k].name}</span>`).join('・'):'<span class="none">能力なし</span>'}</div>`
+      +`<div class="meta">水槽${f.tank}　速さ×${Number(f.spd??1).toFixed(2)}</div>`
+      +`<button class="edit" type="button">能力を編集</button>`
+      +`${idx>=0?`<div class="badge">${idx+1}</div>`:''}`;
+    c.querySelector('.edit').onclick=ev=>{ev.stopPropagation();openAbilityEditor(f)};c.onclick=()=>{const now=selected.findIndex(x=>x.key===f.key);if(now>=0)selected.splice(now,1);else if(selected.length<MAX)selected.push(f);renderSelected();renderGrid();syncStaged()};$('grid').appendChild(c)}}
+function currentEntrants(){return selected.map((f,i)=>({lane:i+1,id:f.id,tank:f.tank,name:f.name||'(なまえなし)',img:f.img,spd:Number(f.spd??1),grow:Number(f.grow??1),size:f.size||'m',face:Number(f.face??-1),abilities:abilitiesOf(f)}));}
 let stageTimer=null;function syncStaged(){clearTimeout(stageTimer);stageTimer=setTimeout(async()=>{const snap=await get(ref(db,'aquarium/race')),cur=snap.val()||{};if(cur.status==='countdown'||cur.status==='running')return;await set(ref(db,'aquarium/race'),{mode:`n${MAX}`,status:selected.length?'staged':'idle',nonce:Date.now(),entrants:currentEntrants(),results:null})},120)}
 $('randomBtn').onclick=()=>{if(allFish.length<MAX){alert(`お魚が${MAX}匹以上必要です。現在${allFish.length}匹です。`);return}const a=[...allFish];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}selected=a.slice(0,MAX);renderSelected();renderGrid();syncStaged()};
 $('clearBtn').onclick=()=>{selected=[];renderSelected();renderGrid();syncStaged()};
 $('startBtn').onclick=async()=>{if(selected.length!==MAX)return;const nonce=Date.now();await set(ref(db,'aquarium/race'),{mode:`n${MAX}`,status:'countdown',nonce,startedAt:nonce,entrants:currentEntrants(),results:null})};
 $('resetBtn').onclick=async()=>{if(confirm('レース画面を待機状態に戻しますか？'))await set(ref(db,'aquarium/race'),{mode:`n${MAX}`,status:selected.length?'staged':'idle',nonce:Date.now(),entrants:currentEntrants(),results:null})};
+
+/* ---------- 能力の編集 ---------- */
+function openAbilityEditor(f){
+  const cur=new Set(abilitiesOf(f));
+  const ov=document.createElement('div');
+  ov.className='overlay';
+  ov.innerHTML=`<div class="dlg">
+    <h3>${esc(f.name||'(なまえなし)')} の能力</h3>
+    <p class="hint">タップで選択。複数えらべます。</p>
+    <div class="ablist">${ABILITY_KEYS.map(k=>`
+      <button class="ab${cur.has(k)?' on':''}" data-k="${k}">
+        <span class="tx"><b>${ABILITIES[k].name}</b><em>${ABILITIES[k].desc}</em></span>
+      </button>`).join('')}</div>
+    <div class="dlgbtns">
+      <button class="btn" id="abAuto">自動にもどす</button>
+      <button class="btn" id="abCancel">やめる</button>
+      <button class="btn primary" id="abSave">保存</button>
+    </div></div>`;
+  document.body.appendChild(ov);
+  ov.querySelectorAll('.ab').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.k;
+    if(cur.has(k)){cur.delete(k);b.classList.remove('on')}
+    else{cur.add(k);b.classList.add('on')}
+  });
+  const close=()=>ov.remove();
+  ov.onclick=e=>{if(e.target===ov)close()};
+  ov.querySelector('#abCancel').onclick=close;
+  ov.querySelector('#abSave').onclick=async()=>{
+    await update(ref(db,`aquarium/tanks/${f.tank}/fish/${f.id}`),{abilities:[...cur]});
+    f.abilities=[...cur];
+    close();renderGrid();renderSelected();syncStaged();
+  };
+  ov.querySelector('#abAuto').onclick=async()=>{
+    await update(ref(db,`aquarium/tanks/${f.tank}/fish/${f.id}`),{abilities:null});
+    delete f.abilities;
+    close();renderGrid();renderSelected();syncStaged();
+  };
+}
 
 onValue(ref(db,'aquarium/race'),s=>{const r=s.val()||{},box=$('raceStatus');if(r.status==='staged')box.innerHTML='<span class="live">● 出走魚がスタート位置で待機中</span>';else if(r.status==='countdown')box.innerHTML='<span class="live">● レース準備中 / カウントダウン</span>';else if(r.status==='running')box.innerHTML='<span class="live">● レース中！</span>';else if(r.status==='finished'&&Array.isArray(r.results)){box.className='status result';box.innerHTML='<div>🏆 レース結果</div><ol>'+r.results.map(x=>`<li>${esc(x.name)}</li>`).join('')+'</ol>'}else{box.className='status';box.textContent='待機中'}});
 $('obsUrl').innerHTML=`OBS用URL：<br>${location.href.replace(/race_admin\.html.*$/,'')}race_display.html`;

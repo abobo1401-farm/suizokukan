@@ -43,6 +43,33 @@ let artReady=false;
 })();
 
 const MAX_RACERS=5, MIN_RACERS=2;
+/* ---------- 特殊能力 ---------- */
+const ABILITIES={
+  ganjou:  {name:'がんじょう',   icon:'🛡'},
+  taishoku:{name:'たいしょく',   icon:'🍽'},
+  surinuke:{name:'すりぬけ',     icon:'💨'},
+  rocket:  {name:'ロケット',     icon:'🚀'},
+  makezu:  {name:'まけずぎらい', icon:'🔥'},
+  oikomi:  {name:'おいこみ',     icon:'⚡'},
+  gurume:  {name:'ダッシュ',     icon:'🍏'},
+  lucky:   {name:'幸運',         icon:'🍀'}
+};
+const ABILITY_KEYS=Object.keys(ABILITIES);
+function strHash(str,salt){
+  let x=2166136261>>>0;const s2=String(str)+'|'+salt;
+  for(let i=0;i<s2.length;i++){x^=s2.charCodeAt(i);x=Math.imul(x,16777619)>>>0}
+  return x>>>0;
+}
+// 魚IDから能力を自動で決める（0〜2個、1個が多め）
+function autoAbilities(fid){
+  const n=[0,1,1,1,2,2][strHash(fid,'n')%6];
+  return ABILITY_KEYS.slice().sort((a,b)=>strHash(fid,a)-strHash(fid,b)).slice(0,n);
+}
+function abilitiesOf(e){
+  if(Array.isArray(e.abilities))return e.abilities.filter(k=>ABILITIES[k]);
+  return autoAbilities(e.id||'');
+}
+function has(r,k){return r.abil.includes(k)}
 const RACE_SECONDS=90;
 const COURSE_SCREENS=18; // 18画面ぶんの長いコース
 let state={status:'idle'},race=null,last=performance.now(),reportedNonce=null;
@@ -92,13 +119,15 @@ function makeRace(v,entrants,staged){
     fishingPlanned: true, fishingTriggered:false, fishingTarget:null, fishingReturnAt:0, fishingReturnTop:false,
     racers:entrants.map((e,i)=>{
       const rr=rnd(hash(v.nonce,i+1));
-      const training=1+(Math.max(.75,Math.min(1.6,Number(e.spd||1)))-1)*.16;
+      const training=1+(Math.max(.75,Math.min(1.9,Number(e.spd||1)))-1)*.34;
       const obs=[];for(let p=2.1;p<COURSE_SCREENS-1;p+=2.5+rr()*1.5)obs.push({x:p+rr()*.8,kind:rr()<.5?'rock':'weed',idx:Math.floor(rr()*99),flip:rr()<.5});
       const food=[];for(let p=3.2;p<COURSE_SCREENS-1;p+=4+rr()*2){
         const t=rr();
         food.push({x:p+rr()*.8,idx:Math.floor(rr()*997),kind:t<.30?'red':'other',ph:rr()*6.28});
       }
-      return{e,i,world:.18,phase:rr()*6.28,base:(COURSE_SCREENS-.9)/RACE_SECONDS*(.94+rr()*.12)*training,jitter:0,lastJitter:0,pause:0,foodText:0,hitText:0,dash:0,dashText:0,finished:false,obstacles:obs,foods:food,hitOb:new Set(),hitFood:new Set(),lane:i,fishing:false,fishT:0};
+      const abil=abilitiesOf(e);
+      return{e,i,abil,rocket:abil.includes('rocket')?3.0:0,world:.18,phase:rr()*6.28,base:(COURSE_SCREENS-.9)/RACE_SECONDS*(.94+rr()*.12)*training
+        *(1-Math.max(0,Math.min(1.2,Number(e.grow||1)-1))*.03),jitter:0,lastJitter:0,pause:0,foodText:0,hitText:0,dash:0,dashText:0,finished:false,obstacles:obs,foods:food,hitOb:new Set(),hitFood:new Set(),lane:i,fishing:false,fishT:0};
     })};
 }
 
@@ -400,8 +429,8 @@ function drawFish(r,now){const e=r.e,im=images.get(`${e.tank}:${e.id}`);if(!im||
   if(r.dash>0)ctx.scale(1.14,.88);              // ダッシュ中は伸びる
   if(e.face!==1)ctx.scale(-1,1);
   ctx.drawImage(im,-dw/2,-dh/2,dw,dh);ctx.restore();
-  // ダッシュの線
-  if(r.dash>0){
+  // 加速の線
+  if(r.dash>0||r.rocket>0||(r.trail??0)>0){
     ctx.save();ctx.globalAlpha=.6;ctx.strokeStyle='#ffd0c0';ctx.lineWidth=Math.max(2,H*.005);
     for(let i=0;i<4;i++){const ly=y+(i-1.5)*dh*.22;
       ctx.beginPath();ctx.moveTo(x-dw*.6,ly);ctx.lineTo(x-dw*(1.0+i*.16),ly);ctx.stroke()}
@@ -410,7 +439,23 @@ function drawFish(r,now){const e=r.e,im=images.get(`${e.tank}:${e.id}`);if(!im||
   // 泳ぎの泡
   if(!race.staged&&!r.finished){ctx.save();ctx.globalAlpha=.55;ctx.fillStyle='#dffaff';for(let j=0;j<3;j++){const bx=x-dw*.58-j*13-(now*.08+j*31)%18,by=y+((j%2)?-1:1)*dh*.16;ctx.beginPath();ctx.arc(bx,by,2+j,0,Math.PI*2);ctx.fill()}ctx.restore()}
   ctx.textAlign='center';ctx.font=`800 ${Math.max(13,H*.020)}px sans-serif`;ctx.lineWidth=4;ctx.strokeStyle='rgba(2,20,32,.88)';ctx.fillStyle='#fff';ctx.strokeText(e.name||'(なまえなし)',x,y+dh*.68+15);ctx.fillText(e.name||'(なまえなし)',x,y+dh*.68+15);
-  if(r.dashText>0){ctx.font=`900 ${Math.max(14,H*.022)}px sans-serif`;ctx.lineWidth=5;ctx.strokeStyle='rgba(60,10,0,.9)';ctx.fillStyle='#ff9c7a';ctx.strokeText('ダッシュ！',x,y-dh*.75-10);ctx.fillText('ダッシュ！',x,y-dh*.75-10)}
+  // 能力アイコン
+  if(r.abil&&r.abil.length){
+    ctx.font=`${Math.max(11,H*.018)}px sans-serif`;
+    ctx.fillStyle='#fff';ctx.lineWidth=3;ctx.strokeStyle='rgba(2,20,32,.8)';
+    const icons=r.abil.map(k=>ABILITIES[k].icon).join(' ');
+    ctx.strokeText(icons,x,y+dh*.68+15+Math.max(13,H*.022));
+    ctx.fillText(icons,x,y+dh*.68+15+Math.max(13,H*.022));
+  }
+  // 能力の発動表示
+  const pop=(txt,col)=>{ctx.font=`900 ${Math.max(14,H*.022)}px sans-serif`;ctx.lineWidth=5;
+    ctx.strokeStyle='rgba(20,10,0,.9)';ctx.fillStyle=col;
+    ctx.strokeText(txt,x,y-dh*.75-10);ctx.fillText(txt,x,y-dh*.75-10)};
+  if(r.escaped>0)pop('すりぬけ！','#a8ecff');
+  else if(r.guardText>0)pop('へいき！','#cfe8ff');
+  else if(r.rocket>0)pop('ロケット！','#ffc48a');
+  else if((r.fire??0)>0.28)pop('まけずぎらい！','#ff9a6a');
+  else if(r.dashText>0)pop('ダッシュ！','#ff9c7a');
   if(r.foodText>0||r.hitText>0){const txt=r.foodText>0?'もぐもぐ…':'💥';ctx.font=`900 ${Math.max(13,H*.019)}px sans-serif`;ctx.fillStyle=r.foodText>0?'#ffeaa5':'#ffd0c7';ctx.fillText(txt,x,y-dh*.72-10)}
 }
 
@@ -423,12 +468,22 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
     if(race.fishingPlanned){
       const active=race.racers.filter(r=>!r.finished);
       if(active.length){
-        const target=active.reduce((a,b)=>a.world>=b.world?a:b);
+        let target=active.reduce((a,b)=>a.world>=b.world?a:b);
+        const rrEsc=rnd(hash(race.nonce,3131));
+        if(has(target,'surinuke')&&rrEsc()<.50){
+          target.escaped=1.6;                   // すりぬけ成功
+          const rest=active.filter(r=>r!==target);
+          if(!rest.length){race.fishingTriggered=true;target=null}
+          else target=rest.reduce((a,b)=>a.world>=b.world?a:b);
+        }
+        if(!target){race.fishingTarget=null;}
+        else{
         target.fishing=true; target.fishT=0; target.pause=0;
         race.fishingTarget=target;
-        race.fishingReturnAt=RACE_SECONDS-10;
+        race.fishingReturnAt=RACE_SECONDS-18;   // 残り18秒で復帰
         const rrFish=rnd(hash(race.nonce,9091));
         race.fishingReturnTop=rrFish()<0.50;   // 50%で1位の位置、50%で最下位
+        }
       }
     }
   }
@@ -436,17 +491,22 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
   if(!race.finaleTriggered && elapsed>=RACE_SECONDS-FINALE_AT){
     race.finaleTriggered=true;
     const rrF=rnd(hash(race.nonce,4649));
-    const goldHit=rrF()<GOLD_CHANCE;
+    const luckyN=race.racers.filter(r=>has(r,'lucky')&&!r.finished).length;
+    const goldHit=rrF()<GOLD_CHANCE*(1+luckyN*0.9);
     const massHit=rrF()<MASS_FISH_CHANCE;
     const active=race.racers.filter(r=>!r.finished&&!r.fishing&&!r.dropping);
     const lastOne=active.length?active.reduce((a,b)=>a.world<=b.world?a:b):null;
     if(goldHit && lastOne){
-      // 最下位の少し前に金のりんごを出す。触れたら発動
-      race.goldApple={owner:lastOne,x:lastOne.world+.32,taken:false,t:0};
+      // ラッキー持ちがいればその魚に、いなければ最下位に出す
+      const luckies=active.filter(r=>has(r,'lucky'));
+      const owner=luckies.length?luckies.reduce((a,b)=>a.world<=b.world?a:b):lastOne;
+      race.goldApple={owner,x:owner.world+.32,taken:false,t:0};
     }
     if(massHit && active.length>=3){
+      const rrE=rnd(hash(race.nonce,7777));
       for(const r of active){
         if(r===lastOne)continue;
+        if(has(r,'surinuke')&&rrE()<.50){r.escaped=1.6;continue}   // すりぬけで回避
         r.fishing=true;r.fishT=0;r.pause=0;r.massFished=true;
       }
       race.massFishAt=elapsed;
@@ -494,13 +554,33 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
       makeSplash(Math.max(W*.13,Math.min(W*.82,screenX(r.world))),laneY(r.i));
     }
   }
-  for(const r of race.racers){if(r.finished||r.fishing||r.dropping)continue;r.foodText=Math.max(0,r.foodText-dt);r.hitText=Math.max(0,r.hitText-dt);if(r.pause>0){r.pause-=dt;continue}
+  for(const r of race.racers){if(r.finished||r.fishing||r.dropping)continue;r.foodText=Math.max(0,r.foodText-dt);r.hitText=Math.max(0,r.hitText-dt);
+    r.guardText=Math.max(0,(r.guardText??0)-dt);r.escaped=Math.max(0,(r.escaped??0)-dt);
+    r.trail=Math.max(0,(r.trail??0)-dt);if(r.pause>0){r.pause-=dt;continue}
     if(elapsed-r.lastJitter>1.25){const rr=rnd(hash(race.nonce+Math.floor(elapsed*13),r.i+99));r.jitter=(rr()-.5)*.30;r.lastJitter=elapsed}
     let v=r.base*(1+r.jitter);if(elapsed>72)v*=1.10+((race.racers.length-1-r.i)*.008);
-    if(r.dash>0){r.dash-=dt;r.dashText=Math.max(0,r.dashText-dt);v*=2.35}
+    if(r.dash>0){r.dash-=dt;r.dashText=Math.max(0,r.dashText-dt);v*=has(r,'gurume')?3.1:2.35}
     if(r.golden){r.goldT+=dt;v*=3.6}
+    // ロケット：スタートから3秒間ぐんぐん進む
+    if(r.rocket>0){r.rocket-=dt;v*=1.85;r.trail=.2}
+    // まけずぎらい：負けているほど燃えて加速する
+    if(has(r,'makezu')){
+      const leadPos=Math.max(...race.racers.map(x=>x.world));
+      const gap=leadPos-r.world;
+      if(gap>.25)r.fire=Math.min(.6,(r.fire??0)+dt*.10*Math.min(1,gap/1.2));
+      else r.fire=Math.max(0,(r.fire??0)-dt*.5);
+      v*=1+(r.fire??0)*.18;
+      if((r.fire??0)>.3)r.trail=.12;
+    }
+    // おいこみ：ラスト20秒で加速
+    if(has(r,'oikomi')&&elapsed>=RACE_SECONDS-15){v*=1.12;r.trail=.15}
     r.world+=v*dt;
-    for(let j=0;j<r.obstacles.length;j++){if(!r.hitOb.has(j)&&r.world>=r.obstacles[j].x){r.hitOb.add(j);const rr=rnd(hash(race.nonce+j*43,r.i+101));const sizePenalty=Math.max(0,Number(r.e.grow||1)-1)*.07;if(rr()<Math.min(.80,.53+sizePenalty)){r.pause=.45+rr()*1.55;r.hitText=r.pause+.25}else r.world+=.08}}
+    for(let j=0;j<r.obstacles.length;j++){if(!r.hitOb.has(j)&&r.world>=r.obstacles[j].x){r.hitOb.add(j);const rr=rnd(hash(race.nonce+j*43,r.i+101));const dur=Math.max(0,Math.min(1.2,Number(r.e.grow||1)-1));   // 耐久（成長ぶん）
+        const stopRate=Math.max(.20,.53-dur*.26);                   // 大きいほど止まりにくい
+        const stopTime=Math.max(.35,1.0-dur*.42);                   // 止まっても短い
+        if(has(r,'ganjou')){r.guardText=.7}
+        else if(rr()<stopRate){r.pause=(.45+rr()*1.55)*stopTime;r.hitText=r.pause+.25}
+        else r.world+=.08}}
     for(let j=0;j<r.foods.length;j++){
       const fd=r.foods[j];
       if(r.hitFood.has(j)||r.world<fd.x)continue;
@@ -508,6 +588,8 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
       const rr=rnd(hash(race.nonce+j*71,r.i+201));
       if(fd.kind==='red'){                       // 赤りんご＝ダッシュ
         r.dash=DASH_TIME;r.dashText=DASH_TIME;
+      }else if(has(r,'taishoku')){               // たいしょく＝止まらず食べる
+        r.foodText=.8;
       }else if(rr()<.58){                        // その他＝ランダムで足止め
         r.pause=1.0+rr()*2.5;r.foodText=r.pause+.4;
       }
