@@ -379,13 +379,18 @@ cv.addEventListener('pointerdown', e => {
   const py = (e.clientY - r.top)  * (H / r.height);
 
   if (detail){
-    if (feedBtn && !detail.closing &&
-        px > feedBtn.x && px < feedBtn.x + feedBtn.w &&
-        py > feedBtn.y && py < feedBtn.y + feedBtn.h){
-      feed(detail.f);
-      return;
-    }
-    detail.closing = true;
+    if (detail.closing) return;                 // 閉じている最中は何もしない
+    const hit = (b) => b && px > b.x && px < b.x + b.w && py > b.y && py < b.y + b.h;
+    if (hit(closeBtn)){ closeDetail(); return; }
+    if (hit(feedBtn)){ feed(detail.f); return; }
+    closeDetail();
+    return;
+  }
+
+  // 画面の隅のエサボタン（ランダムな1匹にあげる）
+  if (cornerBtn && px > cornerBtn.x && px < cornerBtn.x + cornerBtn.w &&
+      py > cornerBtn.y && py < cornerBtn.y + cornerBtn.h){
+    feedRandom();
     return;
   }
 
@@ -402,6 +407,14 @@ cv.addEventListener('pointerdown', e => {
 });
 
 let feedBtn = null;      // { x, y, w, h } 拡大中のエサボタン領域
+let closeBtn = null;     // 拡大中の✕ボタン
+let cornerBtn = null;    // 画面の隅のエサボタン
+
+function closeDetail(){
+  if (!detail) return;
+  detail.closing = true;
+  feedBtn = null; closeBtn = null;
+}
 let feedMsg = null;      // { text, life }
 let gainMsg = null;      // 成長結果の表示
 
@@ -420,22 +433,29 @@ async function feed(f){
   const b = randomBait();
   const payload = { type: b.type, x: 0.5, ts: Date.now(), forId: f.id };
   if (b.img) payload.img = b.img;
+  closeDetail();                                  // 先に閉じる（通信を待たない）
+  feedMsg = { text: `${f.name || 'このさかな'} に ${b.name} をあげました`, life: 0 };
   try{
     await set(ref(db, `aquarium/tanks/${TANK}/bait`), payload);
-    feedMsg = { text: `${b.name} をあげました`, life: 0 };
-    if (detail) detail.closing = true;
   }catch(e){
     feedMsg = { text: 'エサをあげられませんでした', life: 0 };
   }
+}
+
+// ランダムな1匹にエサをあげる
+function feedRandom(){
+  const list = [...fishes.values()].filter(f => f.dropped && !f.dying);
+  if (!list.length){ feedMsg = { text: 'さかながいません', life: 0 }; return; }
+  feed(list[Math.floor(Math.random() * list.length)]);
 }
 
 const SIZE_LABEL = { s:'小', m:'中', l:'大', xl:'特大' };
 const MOTION_LABEL = { fuwa:'フワフワ', swim:'スイスイ', toko:'トコトコ' };
 
 function drawDetail(dt){
-  if (!detail){ feedBtn = null; return; }
+  if (!detail){ feedBtn = null; closeBtn = null; return; }
   detail.life += detail.closing ? -dt * 3.5 : dt * 3.5;
-  if (detail.life <= 0 && detail.closing){ detail = null; feedBtn = null; return; }
+  if (detail.life <= 0 && detail.closing){ detail = null; feedBtn = null; closeBtn = null; return; }
   const u = Math.min(1, detail.life);
   const e = 1 - Math.pow(1 - u, 3);
   const f = detail.f;
@@ -446,6 +466,22 @@ function drawDetail(dt){
   ctx.globalAlpha = e * 0.76;
   ctx.fillStyle = '#02141f';
   ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+
+  // 右上の✕ボタン
+  const cs = 62 * k, cx0 = W - cs - 28 * k, cy0 = 28 * k;
+  closeBtn = detail.closing ? null : { x: cx0, y: cy0, w: cs, h: cs };
+  ctx.save();
+  ctx.globalAlpha = e;
+  ctx.beginPath(); ctx.arc(cx0 + cs / 2, cy0 + cs / 2, cs / 2, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,.16)'; ctx.fill();
+  ctx.lineWidth = 3 * k; ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.stroke();
+  ctx.lineWidth = 5 * k; ctx.strokeStyle = '#ffffff'; ctx.lineCap = 'round';
+  const q = cs * 0.26;
+  ctx.beginPath();
+  ctx.moveTo(cx0 + cs/2 - q, cy0 + cs/2 - q); ctx.lineTo(cx0 + cs/2 + q, cy0 + cs/2 + q);
+  ctx.moveTo(cx0 + cs/2 + q, cy0 + cs/2 - q); ctx.lineTo(cx0 + cs/2 - q, cy0 + cs/2 + q);
+  ctx.stroke();
   ctx.restore();
 
   // ---- 魚を上寄せで表示（以前より小さめ）----
@@ -591,6 +627,25 @@ function roundRect(x, y, w, h, r){
   ctx.arcTo(x, y + h, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
+}
+
+/* ---------- 隅のエサボタン ---------- */
+function drawCornerButton(){
+  if (detail){ cornerBtn = null; return; }
+  const k = AS / BASE_H;
+  const bw = 200 * k, bh = 56 * k;
+  const bx = W - bw - 24 * k, by = H - bh - 24 * k;
+  cornerBtn = { x: bx, y: by, w: bw, h: bh };
+  ctx.save();
+  ctx.globalAlpha = 0.9;
+  roundRect(bx, by, bw, bh, 16 * k);
+  ctx.fillStyle = 'rgba(255,122,92,.92)'; ctx.fill();
+  ctx.lineWidth = 3 * k; ctx.strokeStyle = 'rgba(255,255,255,.45)'; ctx.stroke();
+  ctx.fillStyle = '#2a0a04';
+  ctx.font = `800 ${Math.round(21 * k)}px "Hiragino Maru Gothic ProN",sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('🍎 だれかにエサ', bx + bw / 2, by + bh / 2);
+  ctx.restore();
 }
 
 /* ---------- アニメーション ---------- */
@@ -783,6 +838,7 @@ function loop(now){
       ctx.restore();
     }
   }
+  drawCornerButton();
   drawFx(dt);
   drawDetail(dt);
 

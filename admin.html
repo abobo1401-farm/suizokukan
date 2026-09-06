@@ -78,6 +78,7 @@
   .baitbtn:hover{border-color:var(--foam)}
   .baitbtn img{height:44px;width:auto}
   .baitbtn em{font-style:normal;font-size:10px;font-weight:500;opacity:.6}
+  .baitbtn#baitRandom,.baitbtn#baitStop{font-size:11px;line-height:1.45;justify-content:center}
   #baitMsg{font-size:12px;margin-top:10px;min-height:16px;color:var(--foam)}
   .baitbtn.on{border-color:var(--foam);background:rgba(143,227,214,.15)}
   .baitbtn .del{
@@ -117,14 +118,15 @@
 
 <div class="bar">
   <button class="btn danger" id="delTank">この水槽を空にする</button>
-  <button class="btn" id="resetGrow">この水槽の大きさを全部もどす</button>
+  <button class="btn" id="resetMeals">エサやり回数だけリセット</button>
+  <button class="btn" id="resetGrow">この水槽の育成を全部リセット</button>
   <button class="btn danger" id="delAll">全水槽を空にする</button>
   <div class="url" id="obsUrl"></div>
 </div>
 
 <div class="baitbox">
   <h2>エサをあげる</h2>
-  <p>エサをあげる魚を選んでから、エサを押してください。食べると一回り大きくなります。</p>
+  <p>エサをあげる魚を選んでから、エサを押してください。食べると「大きくなる」か「すばやくなる」のどちらかが起きます。</p>
   <div class="target">
     <span class="label">あげる相手</span>
     <select id="targetSel"><option value="">みんな（群がるだけ・成長なし）</option></select>
@@ -133,6 +135,7 @@
     <button class="baitbtn" data-bait="worm"><img data-b="worm" alt=""><span>ミミズ</span><em>さかな用</em></button>
     <button class="baitbtn" data-bait="apple"><img data-b="apple" alt=""><span>りんご</span><em>クラゲ用</em></button>
     <button class="baitbtn" data-bait="meat"><img data-b="meat" alt=""><span>おにく</span><em>カニ用</em></button>
+    <button class="baitbtn" id="baitRandom" style="min-width:78px">🎲<br>ランダム<br>1匹にあげる</button>
     <button class="baitbtn" id="baitStop" style="min-width:70px">✕<br>ひきあげる</button>
   </div>
   <div class="upload">
@@ -147,7 +150,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getDatabase, ref, onValue, get, set, remove }
+import { getDatabase, ref, onValue, get, set, update, remove }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 /* ============================================================
@@ -238,7 +241,8 @@ function loadFish(){
       const g = f.grow ?? 1;
       const o = document.createElement('option');
       o.value = id;
-      o.textContent = (f.name || '(なまえなし)') + (g > 1.01 ? ` ×${g.toFixed(1)}` : '');
+      const me = f.meals ?? 0;
+      o.textContent = (f.name || '(なまえなし)') + (me ? ` 🍽${me}` : '');
       targetSel.appendChild(o);
     }
     targetSel.value = keep && ids.includes(keep) ? keep : '';
@@ -252,10 +256,11 @@ function loadFish(){
       card.innerHTML = `
         <div class="thumb"><img src="${f.img}" alt=""></div>
         <div class="nm">${escapeHtml(f.name || '(なまえなし)')}</div>
-        ${g > 1.01 ? `<div class="grw">おおきさ ×${g.toFixed(2)}</div>` : ''}
+        ${statLine(f)}
         <div class="tm">${d ? `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` : ''}</div>
         <div class="btns">
-          ${g > 1.01 ? '<button class="rst">もどす</button>' : ''}
+          <button class="fd">エサ</button>
+          ${(g > 1.01 || (f.spd ?? 1) > 1.01 || (f.meals ?? 0) > 0) ? '<button class="rst">もどす</button>' : ''}
           <button class="del2">削除</button>
         </div>`;
       card.querySelector('.del2').onclick = async () => {
@@ -263,13 +268,27 @@ function loadFish(){
         await remove(ref(db, `aquarium/tanks/${current}/fish/${id}`));
         await remove(ref(db, `aquarium/tanks/${current}/index/${id}`));
       };
+      card.querySelector('.fd').onclick = () => {
+        targetSel.value = id;
+        const b = randomBaitKey();
+        dropBait(b.key, b.name, b.img);
+      };
       const rst = card.querySelector('.rst');
       if (rst) rst.onclick = async () => {
-        await set(ref(db, `aquarium/tanks/${current}/fish/${id}/grow`), 1);
+        await update(ref(db, `aquarium/tanks/${current}/fish/${id}`),
+                     { grow: 1, spd: 1, meals: 0 });
       };
       grid.appendChild(card);
     }
   });
+}
+function statLine(f){
+  const g = f.grow ?? 1, sp = f.spd ?? 1, me = f.meals ?? 0;
+  if (!me) return '';
+  const parts = [];
+  if (g > 1.01) parts.push(`大きさ×${g.toFixed(2)}`);
+  if (sp > 1.01) parts.push(`速さ×${sp.toFixed(2)}`);
+  return `<div class="grw">🍽 ${me}こ${parts.length ? '　' + parts.join('　') : ''}</div>`;
 }
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c =>
@@ -281,13 +300,23 @@ document.getElementById('delTank').onclick = async () => {
   if (!confirm(`水槽${current} の魚を全部出しますか？`)) return;
   await remove(ref(db, `aquarium/tanks/${current}`));
 };
+document.getElementById('resetMeals').onclick = async () => {
+  const snap = await get(ref(db, `aquarium/tanks/${current}/fish`));
+  if (!snap.exists()) return;
+  const v = snap.val();
+  const ids = Object.keys(v).filter(id => (v[id].meals ?? 0) > 0);
+  if (!ids.length){ alert('エサをあげた記録がありません'); return; }
+  if (!confirm(`水槽${current} の ${ids.length}匹 のエサやり回数を0にもどしますか？\n（大きさ・すばやさはそのまま）`)) return;
+  await Promise.all(ids.map(id =>
+    set(ref(db, `aquarium/tanks/${current}/fish/${id}/meals`), 0)));
+};
 document.getElementById('resetGrow').onclick = async () => {
   const snap = await get(ref(db, `aquarium/tanks/${current}/fish`));
   if (!snap.exists()) return;
   const ids = Object.keys(snap.val());
-  if (!confirm(`水槽${current} の魚 ${ids.length}匹 の大きさを元に戻しますか？`)) return;
+  if (!confirm(`水槽${current} の魚 ${ids.length}匹 の大きさ・すばやさ・食べた数を元に戻しますか？`)) return;
   await Promise.all(ids.map(id =>
-    set(ref(db, `aquarium/tanks/${current}/fish/${id}/grow`), 1)));
+    update(ref(db, `aquarium/tanks/${current}/fish/${id}`), { grow: 1, spd: 1, meals: 0 })));
 };
 document.getElementById('delAll').onclick = async () => {
   if (!confirm('すべての水槽を空にします。よろしいですか？')) return;
@@ -308,6 +337,18 @@ async function dropBait(type, label, img){
   const who = forId ? targetSel.options[targetSel.selectedIndex].text : 'みんな';
   baitMsg.textContent = `${who} に ${label} を落としました`;
   setTimeout(() => { baitMsg.textContent = ''; }, 4000);
+}
+
+// 登録済みのエサからランダムに1つ選ぶ
+function randomBaitKey(){
+  const keys = Object.keys(customBaits);
+  if (keys.length){
+    const k = keys[Math.floor(Math.random() * keys.length)];
+    return { key: k, name: customBaits[k].name, img: customBaits[k].img };
+  }
+  const base = [['worm','ミミズ'],['apple','りんご'],['meat','おにく']];
+  const b = base[Math.floor(Math.random() * base.length)];
+  return { key: b[0], name: b[1], img: null };
 }
 
 function bindBaitButtons(){
@@ -386,6 +427,14 @@ onValue(ref(db, 'aquarium/baits'), s => {
   }
   bindBaitButtons();
 });
+document.getElementById('baitRandom').onclick = async () => {
+  const snap = await get(ref(db, `aquarium/tanks/${current}/fish`));
+  const ids = snap.exists() ? Object.keys(snap.val()) : [];
+  if (!ids.length){ baitMsg.textContent = 'この水槽にはさかながいません'; return; }
+  targetSel.value = ids[Math.floor(Math.random() * ids.length)];
+  const b = randomBaitKey();
+  await dropBait(b.key, b.name, b.img);
+};
 document.getElementById('baitStop').onclick = async () => {
   await remove(ref(db, `aquarium/tanks/${current}/bait`));
   baitMsg.textContent = 'エサをひきあげました';
