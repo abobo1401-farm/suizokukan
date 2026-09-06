@@ -313,12 +313,14 @@ function drawRaceFoods(){
 }
 const DROP_TIME=0.85;
 const DASH_TIME=2.2;        // 赤りんごのダッシュ時間
-const FINALE_AT=10;         // 残り何秒でラストイベントを起こすか
-const GOLD_CHANCE=0.10;       // ラスト10秒に最下位へ金のりんごが出る確率
+const FINALE_AT_LEFT=400;   // 1位の残りがこの距離になったら最後の金のりんご(m)
+// ?test=1 を付けると、確率で決まるイベントが必ず起きる（動作確認用）
+const TEST_MODE=new URLSearchParams(location.search).get('test')==='1';
+const GOLD_CHANCE=TEST_MODE?1:0.10;   // 最後に最下位へ金のりんごが出る確率
 const MID_GOLD_LEFT=1200;     // 1位の残りがこの距離になった時点で判定(m)
 const MID_GOLD_LEFT_DUEL=1000;// タイマンのときの判定距離(m)
 const MID_GOLD_GAP=100;       // 1位と2位がこれ以上ひらいていたら対象(m)
-const MID_GOLD_CHANCE=0.50;   // そのときの発生確率
+const MID_GOLD_CHANCE=TEST_MODE?1:0.50;   // そのときの発生確率
 const GOLD_DURATION=9;        // ラストの金のりんごの効果が続く秒数
 const MID_GOLD_DURATION=3.0;  // 中間の金のりんご（複数同時）の効果が続く秒数
 const FISH_AT_LEFT=1000;      // 1位の残りがこの距離になったら釣り上げ(m)
@@ -566,8 +568,8 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
     }
   }
 
-  // ラスト10秒：最下位に金のりんごが出ることがある
-  if(!race.finaleTriggered && elapsed>=RACE_SECONDS-FINALE_AT){
+  // のこり400m：最下位に金のりんごが出ることがある
+  if(!race.finaleTriggered && leadNow>=fishGoal*((COURSE_METERS-FINALE_AT_LEFT)/COURSE_METERS)){
     race.finaleTriggered=true;
     const rrF=rnd(hash(race.nonce,4649));
     const luckyN=race.racers.filter(r=>has(r,'lucky')&&!r.finished).length;
@@ -709,6 +711,16 @@ function drawHud(now){
 }
 function drawResults(){if(!race||!race.finished)return;ctx.fillStyle='rgba(1,15,25,.78)';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.fillStyle='#ffd86b';ctx.font=`900 ${Math.max(30,H*.065)}px sans-serif`;ctx.fillText('🏆 RESULT 🏆',W/2,H*.16);const n=race.finishOrder.length,gap=n<=3?.135:.105;
   race.finishOrder.forEach((r,i)=>{ctx.fillStyle=i===0?'#ffd86b':'#fff';ctx.font=`800 ${Math.max(17,H*(i===0?.044:.031))}px sans-serif`;ctx.fillText(`${i+1}位　${r.e.name||'(なまえなし)'}`,W/2,H*(.30+i*gap))})}
+function drawTestBadge(){
+  if(!TEST_MODE)return;
+  ctx.save();
+  ctx.globalAlpha=.85;
+  ctx.fillStyle='#ff8166';
+  ctx.font=`900 ${Math.max(13,H*.020)}px sans-serif`;
+  ctx.textAlign='right';ctx.textBaseline='top';
+  ctx.fillText('TEST MODE（イベント確定）',W-W*.02,H*.02);
+  ctx.restore();
+}
 function drawIdle(){ctx.clearRect(0,0,W,H);
   if(artReady&&ART.bg){const im=ART.bg,sc=H/im.height,tw=im.width*sc;for(let x=0;x<W+1;x+=tw)ctx.drawImage(im,x,0,tw+1,H);ctx.fillStyle='rgba(2,25,40,.35)';ctx.fillRect(0,0,W,H);}
   else{const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#0b7898');g.addColorStop(1,'#032737');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);}ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='rgba(255,255,255,.8)';ctx.font=`800 ${Math.max(24,H*.045)}px sans-serif`;ctx.fillText('レース管理画面で出走準備してください',W/2,H*.52)}
