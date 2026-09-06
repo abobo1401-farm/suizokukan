@@ -396,6 +396,23 @@ function drawGoldApple(now){
   if(x<-120||x>W+120)return;
   drawShinyApple(ART.appleGold,x,laneY(ga.owner.i),H*.105,now/1000,true);
 }
+// すりぬけたときの空振りした釣り針
+function drawMissedHook(now,dt){
+  const ms=race&&race.missSplash;
+  if(!ms)return;
+  ms.life+=dt;
+  if(ms.life>1.5){race.missSplash=null;return}
+  const r=ms.r;
+  const u=Math.min(1,ms.life/1.5);
+  const x=screenX(r.world)+laneShift(r)+W*.05;
+  const y=laneY(r.i)-(H*.5)*Math.pow(u,.6);
+  ctx.save();
+  ctx.globalAlpha=1-u*.7;
+  ctx.strokeStyle='rgba(235,245,250,.85)';ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,y-10);ctx.stroke();
+  ctx.lineWidth=3;ctx.beginPath();ctx.arc(x-4,y-8,5,-.4,Math.PI*.9);ctx.stroke();
+  ctx.restore();
+}
 function drawFishing(now){
   if(!race)return;
   const targets=race.racers.filter(r=>r.fishing);
@@ -498,21 +515,19 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
     if(race.fishingPlanned){
       const active=race.racers.filter(r=>!r.finished);
       if(active.length){
-        let target=active.reduce((a,b)=>a.world>=b.world?a:b);
+        const target=active.reduce((a,b)=>a.world>=b.world?a:b);   // その時点の1位
         const rrEsc=rnd(hash(race.nonce,3131));
         if(has(target,'surinuke')&&rrEsc()<.50){
-          target.escaped=1.6;                   // すりぬけ成功
-          const rest=active.filter(r=>r!==target);
-          if(!rest.length){race.fishingTriggered=true;target=null}
-          else target=rest.reduce((a,b)=>a.world>=b.world?a:b);
-        }
-        if(!target){race.fishingTarget=null;}
-        else{
-        target.fishing=true; target.fishT=0; target.pause=0;
-        race.fishingTarget=target;
-        race.fishingReturnAt=RACE_SECONDS-18;   // 残り18秒で復帰
-        const rrFish=rnd(hash(race.nonce,9091));
-        race.fishingReturnTop=rrFish()<0.50;   // 50%で1位の位置、50%で最下位
+          // すりぬけ成功：誰も釣られずレース続行
+          target.escaped=1.6;
+          race.fishingTarget=null;
+          race.missSplash={x:0,life:0,r:target};
+        }else{
+          target.fishing=true; target.fishT=0; target.pause=0;
+          race.fishingTarget=target;
+          race.fishingReturnAt=RACE_SECONDS-18;   // 残り18秒で復帰
+          const rrFish=rnd(hash(race.nonce,9091));
+          race.fishingReturnTop=rrFish()<0.50;    // 50%で1位の位置、50%で最下位
         }
       }
     }
@@ -675,5 +690,5 @@ function drawIdle(){ctx.clearRect(0,0,W,H);
   if(artReady&&ART.bg){const im=ART.bg,sc=H/im.height,tw=im.width*sc;for(let x=0;x<W+1;x+=tw)ctx.drawImage(im,x,0,tw+1,H);ctx.fillStyle='rgba(2,25,40,.35)';ctx.fillRect(0,0,W,H);}
   else{const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#0b7898');g.addColorStop(1,'#032737');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);}ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='rgba(255,255,255,.8)';ctx.font=`800 ${Math.max(24,H*.045)}px sans-serif`;ctx.fillText('レース管理画面で出走準備してください',W/2,H*.52)}
 
-function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;if(race){updateRace(dt,now);drawWaterBase(now);drawParallax();drawCourseObjects();drawObstacles();drawRaceFoods();drawGoldApple(now);drawBubbles(now);drawSpeedStreaks(now);race.racers.forEach(r=>drawFish(r,now));drawFishing(now);drawDropping(now);drawSplashes(dt);drawWaiting();drawCountdown(now);drawHud(now);drawResults()}else drawIdle();requestAnimationFrame(loop)}requestAnimationFrame(loop);
+function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;if(race){updateRace(dt,now);drawWaterBase(now);drawParallax();drawCourseObjects();drawObstacles();drawRaceFoods();drawGoldApple(now);drawBubbles(now);drawSpeedStreaks(now);race.racers.forEach(r=>drawFish(r,now));drawFishing(now);drawMissedHook(now,dt);drawDropping(now);drawSplashes(dt);drawWaiting();drawCountdown(now);drawHud(now);drawResults()}else drawIdle();requestAnimationFrame(loop)}requestAnimationFrame(loop);
 </script></body></html>
