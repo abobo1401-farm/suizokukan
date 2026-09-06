@@ -320,7 +320,9 @@ const MID_GOLD_LEFT_DUEL=1000;// タイマンのときの判定距離(m)
 const MID_GOLD_GAP=100;       // 1位と2位がこれ以上ひらいていたら対象(m)
 const MID_GOLD_CHANCE=0.50;   // そのときの発生確率
 const GOLD_DURATION=9;        // ラストの金のりんごの効果が続く秒数
-const MID_GOLD_DURATION=2.5;  // 中間の金のりんご（複数同時）の効果が続く秒数
+const MID_GOLD_DURATION=3.0;  // 中間の金のりんご（複数同時）の効果が続く秒数
+const FISH_AT_LEFT=1000;      // 1位の残りがこの距離になったら釣り上げ(m)
+const FISH_HOLD=10;           // 釣られている秒数
 const splashes=[];
 function goldBurst(x,y){
   const k=H/900;
@@ -518,8 +520,10 @@ function drawFish(r,now){const e=r.e,im=images.get(`${e.tank}:${e.id}`);if(!im||
 function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<race.startPerf)return;
   if(state.status==='countdown')update(ref(db,'aquarium/race'),{status:'running'}).catch(()=>{});
   const elapsed=(now-race.startPerf)/1000;
-  // レース残り30秒で一度だけ、その時点のトップが必ず釣られる
-  if(!race.fishingTriggered && elapsed>=RACE_SECONDS-30){
+  // 1位の残りが1000mになったら、その時点のトップが必ず釣られる
+  const fishGoal=COURSE_SCREENS-.45;
+  const leadNow=Math.max(...race.racers.map(r=>r.world));
+  if(!race.fishingTriggered && leadNow>=fishGoal*((COURSE_METERS-FISH_AT_LEFT)/COURSE_METERS)){
     race.fishingTriggered=true;
     if(race.fishingPlanned){
       const active=race.racers.filter(r=>!r.finished);
@@ -534,7 +538,7 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
         }else{
           target.fishing=true; target.fishT=0; target.pause=0;
           race.fishingTarget=target;
-          race.fishingReturnAt=RACE_SECONDS-18;   // 残り18秒で復帰
+          race.fishingReturnAt=elapsed+FISH_HOLD;  // 10秒後に復帰
           const rrFish=rnd(hash(race.nonce,9091));
           race.fishingReturnTop=rrFish()<0.50;    // 50%で1位の位置、50%で最下位
         }
