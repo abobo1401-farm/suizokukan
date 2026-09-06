@@ -117,7 +117,7 @@ function makeRace(v,entrants,staged){
   }
   const now=performance.now();
   return {nonce:v.nonce,staged,finished:false,finishOrder:[],startPerf:now+3400,camera:0,objects,midObjects,bubbles,
-    fishingPlanned: true, fishingTriggered:false, fishingTarget:null, fishingReturnAt:0, fishingReturnTop:false,
+    goldApples:[], fishingPlanned: true, fishingTriggered:false, fishingTarget:null, fishingReturnAt:0, fishingReturnTop:false,
     racers:entrants.map((e,i)=>{
       const rr=rnd(hash(v.nonce,i+1));
       const training=1+(Math.max(.75,Math.min(1.9,Number(e.spd||1)))-1)*.34;
@@ -316,6 +316,11 @@ const DASH_TIME=2.2;        // 赤りんごのダッシュ時間
 const FINALE_AT=10;         // 残り何秒でラストイベントを起こすか
 const MASS_FISH_CHANCE=0.20;  // ラスト10秒に最下位以外が全員釣られる確率
 const GOLD_CHANCE=0.10;       // ラスト10秒に最下位へ金のりんごが出る確率
+const MID_GOLD_AT=1500;       // 中間で金のりんごが出るかを判定する距離(m)
+const MID_GOLD_GAP=100;       // 1位と2位がこれ以上ひらいていたら対象(m)
+const MID_GOLD_CHANCE=0.50;   // そのときの発生確率
+const GOLD_DURATION=9;        // ラストの金のりんごの効果が続く秒数
+const MID_GOLD_DURATION=2.5;  // 中間の金のりんご（複数同時）の効果が続く秒数
 const splashes=[];
 function goldBurst(x,y){
   const k=H/900;
@@ -390,11 +395,13 @@ function drawDropping(now){
   }
 }
 function drawGoldApple(now){
-  const ga=race&&race.goldApple;
-  if(!ga||ga.taken||!ART.appleGold)return;
-  const x=screenX(ga.x)+laneShift(ga.owner);
-  if(x<-120||x>W+120)return;
-  drawShinyApple(ART.appleGold,x,laneY(ga.owner.i),H*.105,now/1000,true);
+  if(!race||!ART.appleGold)return;
+  for(const ga of race.goldApples){
+    if(ga.taken)continue;
+    const x=screenX(ga.x)+laneShift(ga.owner);
+    if(x<-120||x>W+120)continue;
+    drawShinyApple(ART.appleGold,x,laneY(ga.owner.i),H*.105,now/1000+ga.owner.i*.7,true);
+  }
 }
 // すりぬけたときの空振りした釣り針
 function drawMissedHook(now,dt){
@@ -444,7 +451,9 @@ function drawFishing(now){
 function drawSpeedStreaks(now){if(!race||race.staged)return;const elapsed=(now-race.startPerf)/1000;if(elapsed<0)return;ctx.save();ctx.globalAlpha=.13;ctx.strokeStyle='#eafdff';ctx.lineWidth=2;const speed=Math.min(1,elapsed/4);for(let i=0;i<18;i++){const y=((i*47+now*.08)%H);const len=(30+(i%6)*16)*speed;const x=((i*113-now*.22*(2+i%3))%(W+220)+W+220)%(W+220);ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-len,y);ctx.stroke()}ctx.restore()}
 function drawGolden(r,now,x,y,dw,dh){
   const t=r.goldT;
+  const fade=Math.max(0,Math.min(1,(r.goldLeft??GOLD_DURATION)/1.0));   // 終わりぎわは薄れる
   ctx.save();
+  ctx.globalAlpha=fade;
   // 光のオーラ
   const rad=Math.max(dw,dh)*(.8+Math.sin(t*7)*.10);
   const g=ctx.createRadialGradient(x,y,rad*.15,x,y,rad);
@@ -453,14 +462,14 @@ function drawGolden(r,now,x,y,dw,dh){
   g.addColorStop(1,'rgba(255,200,60,0)');
   ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,rad,0,Math.PI*2);ctx.fill();
   // 放射状の光条
-  ctx.globalAlpha=.55;ctx.strokeStyle='#fff4c2';ctx.lineWidth=Math.max(2,H*.004);
+  ctx.globalAlpha=.55*fade;ctx.strokeStyle='#fff4c2';ctx.lineWidth=Math.max(2,H*.004);
   for(let i=0;i<10;i++){
     const a=t*2.4+i*Math.PI/5,r0=rad*.55,r1=rad*(1.05+Math.sin(t*9+i)*.14);
     ctx.beginPath();ctx.moveTo(x+Math.cos(a)*r0,y+Math.sin(a)*r0);
     ctx.lineTo(x+Math.cos(a)*r1,y+Math.sin(a)*r1);ctx.stroke();
   }
   // きらめき
-  ctx.globalAlpha=.9;ctx.fillStyle='#fffbe6';
+  ctx.globalAlpha=.9*fade;ctx.fillStyle='#fffbe6';
   for(let i=0;i<6;i++){
     const a=-t*3.1+i*Math.PI/3,rr=rad*(.7+((i*7+Math.floor(t*4))%5)*.08);
     const sx=x+Math.cos(a)*rr,sy=y+Math.sin(a)*rr,s2=Math.max(2,H*.006);
@@ -532,6 +541,26 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
       }
     }
   }
+  // 中間地点：1位が独走していたら2位以下の全員に金のりんごが出る
+  if(!race.midGoldTriggered){
+    const goal=COURSE_SCREENS-.45;
+    const lead=Math.max(...race.racers.map(r=>r.world));
+    if(lead>=goal*(MID_GOLD_AT/COURSE_METERS)){
+      race.midGoldTriggered=true;
+      const act=race.racers.filter(r=>!r.finished&&!r.fishing&&!r.dropping)
+                           .sort((a,b)=>b.world-a.world);
+      if(act.length>=2){
+        const gapM=(act[0].world-act[1].world)/goal*COURSE_METERS;
+        const rrM=rnd(hash(race.nonce,2525));
+        if(gapM>=MID_GOLD_GAP && rrM()<MID_GOLD_CHANCE){
+          for(let n=1;n<act.length;n++){          // 2位から最下位まで
+            race.goldApples.push({owner:act[n],x:act[n].world+.32,taken:false,t:0,mid:true});
+          }
+        }
+      }
+    }
+  }
+
   // ラスト10秒のイベント（金のりんご／一斉釣り上げはそれぞれ独立に抽選）
   if(!race.finaleTriggered && elapsed>=RACE_SECONDS-FINALE_AT){
     race.finaleTriggered=true;
@@ -541,11 +570,11 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
     const massHit=rrF()<MASS_FISH_CHANCE;
     const active=race.racers.filter(r=>!r.finished&&!r.fishing&&!r.dropping);
     const lastOne=active.length?active.reduce((a,b)=>a.world<=b.world?a:b):null;
-    if(goldHit && lastOne){
+    if(goldHit && lastOne && !race.goldApples.some(g=>!g.taken)){
       // ラッキー持ちがいればその魚に、いなければ最下位に出す
       const luckies=active.filter(r=>has(r,'lucky'));
       const owner=luckies.length?luckies.reduce((a,b)=>a.world<=b.world?a:b):lastOne;
-      race.goldApple={owner,x:owner.world+.32,taken:false,t:0};
+      race.goldApples.push({owner,x:owner.world+.32,taken:false,t:0});
     }
     if(massHit && active.length>=3){
       const rrE=rnd(hash(race.nonce,7777));
@@ -558,11 +587,13 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
     }
   }
   // 金のりんごに追いついたら発動
-  if(race.goldApple&&!race.goldApple.taken){
-    const ga=race.goldApple;ga.t+=dt;
+  for(const ga of race.goldApples){
+    if(ga.taken)continue;
+    ga.t+=dt;
     const o=ga.owner;
     if(!o.fishing&&!o.dropping&&o.world>=ga.x){
       ga.taken=true;o.golden=true;o.goldT=0;
+      o.goldLeft=ga.mid?MID_GOLD_DURATION:GOLD_DURATION;
       goldBurst(screenX(ga.x)+laneShift(o),laneY(o.i));
     }
   }
@@ -605,7 +636,12 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
     if(elapsed-r.lastJitter>1.25){const rr=rnd(hash(race.nonce+Math.floor(elapsed*13),r.i+99));r.jitter=(rr()-.5)*.30;r.lastJitter=elapsed}
     let v=r.base*(1+r.jitter);if(elapsed>72)v*=1.10+((race.racers.length-1-r.i)*.008);
     if(r.dash>0){r.dash-=dt;r.dashText=Math.max(0,r.dashText-dt);v*=has(r,'gurume')?3.1:2.35}
-    if(r.golden){r.goldT+=dt;v*=3.6}
+    if(r.golden){
+      r.goldT+=dt;
+      r.goldLeft=(r.goldLeft??GOLD_DURATION)-dt;
+      if(r.goldLeft<=0){r.golden=false;r.trail=.3}
+      else v*=3.6;
+    }
     // ロケット：スタートから3秒間ぐんぐん進む
     if(r.rocket>0){r.rocket-=dt;v*=1.85;r.trail=.2}
     // まけずぎらい：負けているほど燃えて加速する
