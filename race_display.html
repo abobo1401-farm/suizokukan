@@ -43,6 +43,7 @@ let artReady=false;
 })();
 
 const MAX_RACERS=5, MIN_RACERS=2;
+const COURSE_METERS=3000;   // コースの距離（表示用）
 /* ---------- 特殊能力 ---------- */
 const ABILITIES={
   ganjou:  {name:'がんじょう',   icon:'🛡'},
@@ -142,6 +143,17 @@ function laneY(i){
   return c-span/2+span*(i+.5)/n;
 }
 function screenX(world){return (world-race.camera)*W}
+// 大きく離された魚は画面内に寄せる。その魚のレーンの物も同じだけずらす
+function laneShift(r){
+  if(!race||race.staged||r.finished)return 0;
+  const x=screenX(r.world);
+  const cl=Math.max(W*.13,Math.min(W*.82,x));
+  return cl-x;
+}
+function laneShiftOf(i){
+  const r=race&&race.racers[i];
+  return r?laneShift(r):0;
+}
 
 function drawSprite(list,idx,cx,cy,targetH,flip,alpha){
   if(!list||!list.length)return;
@@ -202,19 +214,39 @@ function drawCourseObjects(){
       drawSprite(ART[o.kind],o.idx,x,H*o.y,hh,o.flip,.97);
     }
   }
-  // START / GOAL
+  // 距離の標識
   ctx.textAlign='center';
+  const goal=COURSE_SCREENS-.45;
+  for(let m=500;m<COURSE_METERS;m+=500){
+    const wx=goal*(m/COURSE_METERS), px=screenX(wx);
+    if(px<-100||px>W+100)continue;
+    ctx.save();
+    ctx.globalAlpha=.55;
+    ctx.strokeStyle='rgba(255,255,255,.5)';ctx.lineWidth=2;
+    ctx.setLineDash([10,10]);
+    ctx.beginPath();ctx.moveTo(px,H*.14);ctx.lineTo(px,H*.86);ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha=.85;
+    ctx.font=`800 ${Math.max(13,H*.021)}px sans-serif`;
+    ctx.fillStyle='#eafdff';
+    ctx.fillText(`${m}m`,px,H*.125);
+    ctx.restore();
+  }
+
+  // START / GOAL
   const sx=screenX(.05);
   if(sx>-140&&sx<W+140){ctx.fillStyle='rgba(255,255,255,.92)';ctx.font=`900 ${Math.max(20,H*.034)}px sans-serif`;ctx.fillText('START',sx,H*.10);ctx.strokeStyle='rgba(255,255,255,.6)';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(sx,H*.13);ctx.lineTo(sx,H*.86);ctx.stroke()}
   const gx=screenX(COURSE_SCREENS-.45);
-  if(gx>-200&&gx<W+200){ctx.font=`${Math.max(34,H*.08)}px sans-serif`;ctx.fillText('🏁',gx,H*.16);ctx.strokeStyle='rgba(255,255,255,.9)';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(gx,H*.13);ctx.lineTo(gx,H*.86);ctx.stroke()}
+  if(gx>-200&&gx<W+200){ctx.font=`${Math.max(34,H*.08)}px sans-serif`;ctx.fillText('🏁',gx,H*.16);
+    ctx.font=`900 ${Math.max(15,H*.024)}px sans-serif`;ctx.fillStyle='rgba(255,255,255,.9)';
+    ctx.fillText(`${COURSE_METERS}m`,gx,H*.205);ctx.strokeStyle='rgba(255,255,255,.9)';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(gx,H*.13);ctx.lineTo(gx,H*.86);ctx.stroke()}
 }
 function drawObstacles(){
   if(!race)return;
   for(const r of race.racers){
     for(let j=0;j<r.obstacles.length;j++){
       if(r.hitOb.has(j))continue;
-      const o=r.obstacles[j],x=screenX(o.x);
+      const o=r.obstacles[j],sh=laneShift(r),x=screenX(o.x)+sh;
       if(x<-120||x>W+120)continue;
       const y=laneY(r.i)+H*.055;
       if(artReady)drawSprite(ART[o.kind],o.idx,x,y,H*(o.kind==='weed'?.135:.10),o.flip,.95);
@@ -264,7 +296,7 @@ function drawRaceFoods(){
   for(const r of race.racers){
     for(let j=0;j<r.foods.length;j++){
       if(r.hitFood.has(j))continue;
-      const f=r.foods[j],x=screenX(f.x);
+      const f=r.foods[j],sh=laneShift(r),x=screenX(f.x)+sh;
       if(x<-90||x>W+90)continue;
       const y=laneY(r.i)+Math.sin(now/520+f.ph)*4;
       if(f.kind==='red'&&ART.appleRed){
@@ -341,7 +373,7 @@ function drawDropping(now){
     const e=r.e,im=images.get(`${e.tank}:${e.id}`);if(!im)continue;
     const mul=sizeMul(e),baseH=H*.095*mul;
     const sc=Math.min(W*.11/im.width,baseH/im.height),dw=im.width*sc,dh=im.height*sc;
-    const x=Math.max(W*.13,Math.min(W*.82,screenX(r.world)));
+    const x=Math.max(W*.10,Math.min(W*.88,screenX(r.world)));
     const target=laneY(r.i);
     const u=Math.min(1,r.dropT/DROP_TIME);
     const y=-dh*.8+(target+dh*.8)*(u*u);          // 加速しながら落下
@@ -360,7 +392,7 @@ function drawDropping(now){
 function drawGoldApple(now){
   const ga=race&&race.goldApple;
   if(!ga||ga.taken||!ART.appleGold)return;
-  const x=screenX(ga.x);
+  const x=screenX(ga.x)+laneShift(ga.owner);
   if(x<-120||x>W+120)return;
   drawShinyApple(ART.appleGold,x,laneY(ga.owner.i),H*.105,now/1000,true);
 }
@@ -369,7 +401,7 @@ function drawFishing(now){
   const targets=race.racers.filter(r=>r.fishing);
   for(const r of targets){
     const e=r.e,im=images.get(`${e.tank}:${e.id}`);if(!im)continue;
-    const x=Math.max(W*.13,Math.min(W*.86,screenX(r.world)));
+    const x=Math.max(W*.10,Math.min(W*.88,screenX(r.world)+laneShift(r)));
     const u=Math.min(1,Math.max(0,r.fishT/1.25));
     const baseY=laneY(r.i),y=baseY-(H*.55)*u;
     ctx.save();
@@ -420,9 +452,7 @@ function drawGolden(r,now,x,y,dw,dh){
   }
   ctx.restore();
 }
-function drawFish(r,now){const e=r.e,im=images.get(`${e.tank}:${e.id}`);if(!im||r.fishing||r.dropping)return;const mul=sizeMul(e),baseH=H*.095*mul,sc=Math.min(W*.11/im.width,baseH/im.height),dw=im.width*sc,dh=im.height*sc;let x=screenX(r.world);if(!race.staged&& !r.finished){ // カメラ追従中は魚を主役位置に寄せる
-    x=Math.max(W*.13,Math.min(W*.82,x));
-  }
+function drawFish(r,now){const e=r.e,im=images.get(`${e.tank}:${e.id}`);if(!im||r.fishing||r.dropping)return;const mul=sizeMul(e),baseH=H*.095*mul,sc=Math.min(W*.11/im.width,baseH/im.height),dw=im.width*sc,dh=im.height*sc;const x=screenX(r.world)+laneShift(r);
   const y=laneY(r.i)+Math.sin(r.phase+now/210)*7;
   if(r.golden)drawGolden(r,now,x,y,dw,dh);
   ctx.save();ctx.translate(x,y);
@@ -518,7 +548,7 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
     const o=ga.owner;
     if(!o.fishing&&!o.dropping&&o.world>=ga.x){
       ga.taken=true;o.golden=true;o.goldT=0;
-      goldBurst(Math.max(W*.13,Math.min(W*.82,screenX(ga.x))),laneY(o.i));
+      goldBurst(screenX(ga.x)+laneShift(o),laneY(o.i));
     }
   }
   // 一斉に釣られた魚を戻す
@@ -551,7 +581,7 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
     r.dropT+=dt;
     if(r.dropT>=DROP_TIME){
       r.dropping=false;
-      makeSplash(Math.max(W*.13,Math.min(W*.82,screenX(r.world))),laneY(r.i));
+      makeSplash(Math.max(W*.10,Math.min(W*.88,screenX(r.world))),laneY(r.i));
     }
   }
   for(const r of race.racers){if(r.finished||r.fishing||r.dropping)continue;r.foodText=Math.max(0,r.foodText-dt);r.hitText=Math.max(0,r.hitText-dt);
@@ -608,7 +638,37 @@ async function reportResults(){if(!race||reportedNonce===race.nonce)return;repor
 
 function drawCountdown(now){if(!race||race.staged)return;const left=(race.startPerf-now)/1000;if(left<=0)return;const txt=left>2.4?'3':left>1.6?'2':left>.8?'1':'START!';ctx.fillStyle='rgba(0,0,0,.38)';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.textBaseline='middle';ctx.font=`900 ${Math.min(W*.18,H*.23)}px sans-serif`;ctx.lineWidth=14;ctx.strokeStyle='#073044';ctx.fillStyle=txt==='START!'?'#ffd86b':'#fff';ctx.strokeText(txt,W/2,H/2);ctx.fillText(txt,W/2,H/2)}
 function drawWaiting(){if(!race||!race.staged)return;ctx.fillStyle='rgba(0,0,0,.36)';ctx.fillRect(W*.20,H*.04,W*.60,H*.085);ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#fff';ctx.font=`900 ${Math.max(18,H*.030)}px sans-serif`;ctx.fillText(race.racers.length>=MIN_RACERS?`${race.racers.length}匹で出走待機中`:'出走魚を選抜中…',W/2,H*.082)}
-function drawHud(now){if(!race||race.staged||race.finished)return;const elapsed=Math.max(0,(now-race.startPerf)/1000),remain=Math.max(0,RACE_SECONDS-elapsed);const leader=Math.max(...race.racers.map(r=>r.world));const prog=Math.max(0,Math.min(1,leader/(COURSE_SCREENS-.45)));ctx.fillStyle='rgba(0,0,0,.28)';ctx.fillRect(W*.02,H*.025,W*.34,H*.075);ctx.fillStyle='#fff';ctx.font=`800 ${Math.max(16,H*.024)}px monospace`;ctx.textAlign='left';ctx.fillText(`残り ${Math.ceil(remain)}秒`,W*.035,H*.058);ctx.fillStyle='rgba(255,255,255,.24)';ctx.fillRect(W*.035,H*.074,W*.30,H*.010);ctx.fillStyle='#8fe3d6';ctx.fillRect(W*.035,H*.074,W*.30*prog,H*.010)}
+function drawHud(now){
+  if(!race||race.staged||race.finished)return;
+  const goal=COURSE_SCREENS-.45;
+  const leader=Math.max(...race.racers.map(r=>r.world));
+  const prog=Math.max(0,Math.min(1,leader/goal));
+  const run=Math.round(prog*COURSE_METERS/10)*10;          // 進んだ距離
+  const left=Math.max(0,COURSE_METERS-run);                // 残りの距離
+
+  const bx=W*.02,by=H*.025,bw=W*.36,bh=H*.088;
+  ctx.save();
+  ctx.fillStyle='rgba(0,0,0,.32)';ctx.fillRect(bx,by,bw,bh);
+  ctx.textAlign='left';ctx.textBaseline='alphabetic';
+  ctx.fillStyle='#fff';
+  ctx.font=`800 ${Math.max(17,H*.026)}px monospace`;
+  ctx.fillText(`のこり ${left}m`,bx+W*.015,by+H*.038);
+  ctx.textAlign='right';
+  ctx.fillStyle='rgba(255,255,255,.7)';
+  ctx.font=`700 ${Math.max(13,H*.019)}px monospace`;
+  ctx.fillText(`${run} / ${COURSE_METERS}m`,bx+bw-W*.015,by+H*.038);
+  // バー
+  const gx=bx+W*.015,gy=by+H*.055,gw=bw-W*.03,gh=H*.012;
+  ctx.fillStyle='rgba(255,255,255,.22)';ctx.fillRect(gx,gy,gw,gh);
+  ctx.fillStyle='#8fe3d6';ctx.fillRect(gx,gy,gw*prog,gh);
+  // 各魚の位置を点で表示
+  race.racers.forEach(r=>{
+    const p=Math.max(0,Math.min(1,r.world/goal));
+    ctx.fillStyle=r.finished?'#ffd86b':'rgba(255,255,255,.85)';
+    ctx.beginPath();ctx.arc(gx+gw*p,gy+gh/2,gh*.62,0,Math.PI*2);ctx.fill();
+  });
+  ctx.restore();
+}
 function drawResults(){if(!race||!race.finished)return;ctx.fillStyle='rgba(1,15,25,.78)';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.fillStyle='#ffd86b';ctx.font=`900 ${Math.max(30,H*.065)}px sans-serif`;ctx.fillText('🏆 RESULT 🏆',W/2,H*.16);const n=race.finishOrder.length,gap=n<=3?.135:.105;
   race.finishOrder.forEach((r,i)=>{ctx.fillStyle=i===0?'#ffd86b':'#fff';ctx.font=`800 ${Math.max(17,H*(i===0?.044:.031))}px sans-serif`;ctx.fillText(`${i+1}位　${r.e.name||'(なまえなし)'}`,W/2,H*(.30+i*gap))})}
 function drawIdle(){ctx.clearRect(0,0,W,H);
