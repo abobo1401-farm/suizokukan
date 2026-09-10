@@ -62,13 +62,9 @@ function strHash(str,salt){
   return x>>>0;
 }
 // 魚IDから能力を自動で決める（0〜2個、1個が多め）
-function autoAbilities(fid){
-  const n=[0,1,1,1,2,2][strHash(fid,'n')%6];
-  return ABILITY_KEYS.slice().sort((a,b)=>strHash(fid,a)-strHash(fid,b)).slice(0,n);
-}
+
 function abilitiesOf(e){
-  if(Array.isArray(e.abilities))return e.abilities.filter(k=>ABILITIES[k]);
-  return autoAbilities(e.id||'');
+  return Array.isArray(e.abilities)?e.abilities.filter(k=>ABILITIES[k]):[];
 }
 function has(r,k){return r.abil.includes(k)}
 const RACE_SECONDS=90;
@@ -313,7 +309,7 @@ function drawRaceFoods(){
 }
 const DROP_TIME=0.85;
 const DASH_TIME=2.2;        // 赤りんごのダッシュ時間
-const FINALE_AT_LEFT=400;   // 1位の残りがこの距離になったら最後の金のりんご(m)
+const FINALE_AT_LEFT=500;   // 1位の残りがこの距離になったら最後の金のりんご(m)
 // ?test=1 を付けると、確率で決まるイベントが必ず起きる（動作確認用）
 const TEST_MODE=new URLSearchParams(location.search).get('test')==='1';
 const GOLD_CHANCE=TEST_MODE?1:0.10;   // 最後に最下位へ金のりんごが出る確率
@@ -568,7 +564,7 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
     }
   }
 
-  // のこり400m：最下位に金のりんごが出ることがある
+  // のこり500m：最下位に金のりんごが出ることがある
   if(!race.finaleTriggered && leadNow>=fishGoal*((COURSE_METERS-FINALE_AT_LEFT)/COURSE_METERS)){
     race.finaleTriggered=true;
     const rrF=rnd(hash(race.nonce,4649));

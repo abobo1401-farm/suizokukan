@@ -29,7 +29,7 @@
 </head>
 <body>
 <h1>🏁 水族館レース 管理</h1>
-<p class="sub">お魚には特殊能力があります（描いた時点で自動で決まり、あとから変更できます）。出走数を選んでからお魚を選抜します。2匹のタイマンから5匹まで対応。出走セットするとOBS側でスタート位置に待機し、カウントダウン後に長いスクロールコースを約1分30秒で競争します。</p>
+<p class="sub">特殊能力は水族館で金のりんごを食べると覚えます。ここからも直接つけ外しできます。出走数を選んでからお魚を選抜します。2匹のタイマンから5匹まで対応。出走セットするとOBS側でスタート位置に待機し、カウントダウン後に長いスクロールコースを約1分30秒で競争します。</p>
 
 <div class="panel">
   <h2>出走メンバー <span id="count">0 / 5</span></h2>
@@ -75,13 +75,9 @@ function strHash(str,salt){
   for(let i=0;i<s2.length;i++){x^=s2.charCodeAt(i);x=Math.imul(x,16777619)>>>0}
   return x>>>0;
 }
-function autoAbilities(fid){
-  const n=[0,1,1,1,2,2][strHash(fid,'n')%6];
-  return ABILITY_KEYS.slice().sort((a,b)=>strHash(fid,a)-strHash(fid,b)).slice(0,n);
-}
+
 function abilitiesOf(f){
-  if(Array.isArray(f.abilities))return f.abilities.filter(k=>ABILITIES[k]);
-  return autoAbilities(f.id||'');
+  return Array.isArray(f.abilities)?f.abilities.filter(k=>ABILITIES[k]):[];
 }
 let MAX=5; let allFish=[],selected=[],filterTank='all';
 function renderSizeTabs(){
@@ -137,13 +133,13 @@ function openAbilityEditor(f){
   ov.className='overlay';
   ov.innerHTML=`<div class="dlg">
     <h3>${esc(f.name||'(なまえなし)')} の能力</h3>
-    <p class="hint">タップで選択。複数えらべます。</p>
+    <p class="hint">タップで選択。複数えらべます。ふだんは水族館で金のりんごを食べて覚えます。</p>
     <div class="ablist">${ABILITY_KEYS.map(k=>`
       <button class="ab${cur.has(k)?' on':''}" data-k="${k}">
         <span class="tx"><b>${ABILITIES[k].name}</b><em>${ABILITIES[k].desc}</em></span>
       </button>`).join('')}</div>
     <div class="dlgbtns">
-      <button class="btn" id="abAuto">自動にもどす</button>
+      <button class="btn" id="abAuto">ぜんぶ消す</button>
       <button class="btn" id="abCancel">やめる</button>
       <button class="btn primary" id="abSave">保存</button>
     </div></div>`;
@@ -162,8 +158,8 @@ function openAbilityEditor(f){
     close();renderGrid();renderSelected();syncStaged();
   };
   ov.querySelector('#abAuto').onclick=async()=>{
-    await update(ref(db,`aquarium/tanks/${f.tank}/fish/${f.id}`),{abilities:null});
-    delete f.abilities;
+    await update(ref(db,`aquarium/tanks/${f.tank}/fish/${f.id}`),{abilities:[]});
+    f.abilities=[];
     close();renderGrid();renderSelected();syncStaged();
   };
 }
