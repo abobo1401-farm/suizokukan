@@ -36,6 +36,7 @@
     background:rgba(255,255,255,.12);color:var(--sand);cursor:pointer;
   }
   .btn.danger{background:var(--coral);color:#2a0a04}
+  .btn.primary{background:var(--foam);color:var(--ink)}
   .btn:active{transform:translateY(1px)}
   .url{
     font-size:11px;opacity:.6;word-break:break-all;background:rgba(0,0,0,.25);
@@ -107,6 +108,16 @@
   .card .btns button{flex:1}
   .card button.rst{background:rgba(255,255,255,.16);color:var(--sand)}
   .card .mv{background:rgba(143,227,214,.28);color:var(--sand)}
+  .card .nm.editable{cursor:pointer;border-radius:6px;padding:2px 4px;transition:background .12s}
+  .card .nm.editable:hover{background:rgba(143,227,214,.2);text-decoration:underline}
+  .renameRow{display:flex;align-items:center;gap:12px}
+  .renameRow img{width:64px;height:64px;object-fit:contain;flex:0 0 auto;
+    background:repeating-conic-gradient(rgba(255,255,255,.06) 0% 25%,transparent 0% 50%) 50%/10px 10px;
+    border-radius:10px}
+  .renameRow input{flex:1;min-width:0;padding:12px 14px;border-radius:12px;font-family:inherit;
+    font-size:17px;background:rgba(0,0,0,.3);color:var(--sand);
+    border:2px solid rgba(143,227,214,.35)}
+  .renameRow input:focus{outline:none;border-color:var(--foam)}
   .overlay{position:fixed;inset:0;background:rgba(2,14,22,.84);display:flex;align-items:center;
     justify-content:center;padding:18px;z-index:60}
   .dlg{background:#0a3245;border:2px solid rgba(143,227,214,.35);border-radius:18px;padding:16px;
@@ -272,7 +283,7 @@ function loadFish(){
       const d = f.ts ? new Date(f.ts) : null;
       card.innerHTML = `
         <div class="thumb"><img src="${f.img}" alt=""></div>
-        <div class="nm">${escapeHtml(f.name || '(なまえなし)')}</div>
+        <div class="nm editable" title="クリックで名前を変更">${escapeHtml(f.name || '(なまえなし)')}</div>
         ${statLine(f)}
         <div class="tm">${d ? `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` : ''}</div>
         <div class="btns">
@@ -293,6 +304,7 @@ function loadFish(){
         const b = randomBaitKey();
         dropBait(b.key, b.name, b.img);
       };
+      card.querySelector('.nm').onclick = () => openRenameDialog(id, f);
       card.querySelector('.mv').onclick = () => openMoveDialog(id, f);
       const rst = card.querySelector('.rst');
       if (rst) rst.onclick = async () => {
@@ -344,6 +356,44 @@ document.getElementById('delAll').onclick = async () => {
   if (!confirm('本当に全部消します。もう戻せません。')) return;
   await remove(ref(db, 'aquarium/tanks'));
 };
+
+/* ---------- 名前の変更 ---------- */
+function openRenameDialog(id, f){
+  const ov = document.createElement('div');
+  ov.className = 'overlay';
+  ov.innerHTML = `<div class="dlg">
+    <h3>なまえを変える</h3>
+    <p class="hint">12文字まで。描いた人には通知されません。</p>
+    <div class="renameRow">
+      <img src="${f.img}" alt="">
+      <input id="rnInput" type="text" maxlength="12" value="${escapeHtml(f.name || '')}"
+             placeholder="なまえ" autocomplete="off">
+    </div>
+    <div class="dlgbtns">
+      <button class="btn" id="rnCancel">やめる</button>
+      <button class="btn primary" id="rnSave">保存</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  const input = ov.querySelector('#rnInput');
+  input.focus();
+  input.select();
+  const close = () => ov.remove();
+  ov.onclick = e => { if (e.target === ov) close(); };
+  ov.querySelector('#rnCancel').onclick = close;
+  const save = async () => {
+    const name = input.value.trim();
+    if (!name){ input.focus(); return; }
+    if (name === (f.name || '')){ close(); return; }
+    await set(ref(db, `aquarium/tanks/${current}/fish/${id}/name`), name);
+    close();
+  };
+  ov.querySelector('#rnSave').onclick = save;
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') save();
+    if (e.key === 'Escape') close();
+  });
+}
 
 /* ---------- 引っ越し ---------- */
 async function moveFish(id, f, to){
