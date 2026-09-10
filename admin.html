@@ -106,6 +106,23 @@
   .card .btns{display:flex;gap:5px;width:100%}
   .card .btns button{flex:1}
   .card button.rst{background:rgba(255,255,255,.16);color:var(--sand)}
+  .card .mv{background:rgba(143,227,214,.28);color:var(--sand)}
+  .overlay{position:fixed;inset:0;background:rgba(2,14,22,.84);display:flex;align-items:center;
+    justify-content:center;padding:18px;z-index:60}
+  .dlg{background:#0a3245;border:2px solid rgba(143,227,214,.35);border-radius:18px;padding:16px;
+    max-width:420px;width:100%;max-height:88vh;overflow:auto;color:var(--sand)}
+  .dlg h3{margin:0 0 4px;font-size:17px}
+  .dlg .hint{margin:0 0 12px;font-size:11px;opacity:.6;line-height:1.6}
+  .tklist{display:flex;flex-direction:column;gap:8px}
+  .tk{display:flex;flex-direction:column;align-items:flex-start;gap:3px;width:100%;
+    border:2px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);border-radius:12px;
+    padding:11px 14px;font:800 14px inherit;color:var(--sand);cursor:pointer;text-align:left}
+  .tk:hover:not([disabled]){border-color:var(--foam);background:rgba(143,227,214,.15)}
+  .tk span{font-size:11px;font-weight:500;opacity:.6}
+  .tk[disabled]{opacity:.35;cursor:not-allowed}
+  .tk.full{border-color:rgba(255,122,92,.5)}
+  .dlgbtns{display:flex;gap:8px;margin-top:14px}
+  .dlgbtns .btn{flex:1}
   .empty{opacity:.5;font-size:13px;padding:30px 0;text-align:center}
 </style>
 </head>
@@ -260,6 +277,9 @@ function loadFish(){
         <div class="tm">${d ? `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` : ''}</div>
         <div class="btns">
           <button class="fd">エサ</button>
+          <button class="mv">引っ越し</button>
+        </div>
+        <div class="btns">
           ${(g > 1.01 || (f.spd ?? 1) > 1.01 || (f.meals ?? 0) > 0) ? '<button class="rst">もどす</button>' : ''}
           <button class="del2">削除</button>
         </div>`;
@@ -273,6 +293,7 @@ function loadFish(){
         const b = randomBaitKey();
         dropBait(b.key, b.name, b.img);
       };
+      card.querySelector('.mv').onclick = () => openMoveDialog(id, f);
       const rst = card.querySelector('.rst');
       if (rst) rst.onclick = async () => {
         await update(ref(db, `aquarium/tanks/${current}/fish/${id}`),
@@ -323,6 +344,51 @@ document.getElementById('delAll').onclick = async () => {
   if (!confirm('本当に全部消します。もう戻せません。')) return;
   await remove(ref(db, 'aquarium/tanks'));
 };
+
+/* ---------- 引っ越し ---------- */
+async function moveFish(id, f, to){
+  if (String(to) === String(current)) return;
+  const snap = await get(ref(db, `aquarium/tanks/${to}/index`));
+  const n = snap.exists() ? Object.keys(snap.val()).length : 0;
+  if (n >= TANK_LIMIT){
+    alert(`水槽${to} は満員（${TANK_LIMIT}匹）です`);
+    return;
+  }
+  const ts = f.ts ?? Date.now();
+  await set(ref(db, `aquarium/tanks/${to}/fish/${id}`), f);        // 同じIDのまま移す
+  await set(ref(db, `aquarium/tanks/${to}/index/${id}`), ts);
+  await remove(ref(db, `aquarium/tanks/${current}/fish/${id}`));
+  await remove(ref(db, `aquarium/tanks/${current}/index/${id}`));
+}
+
+function openMoveDialog(id, f){
+  const ov = document.createElement('div');
+  ov.className = 'overlay';
+  const btns = [1,2,3,4,5].map(t => {
+    const n = counts[t] || 0;
+    const full = n >= TANK_LIMIT;
+    const here = t === current;
+    return `<button class="tk${here ? ' here' : ''}${full ? ' full' : ''}" data-t="${t}"
+              ${here || full ? 'disabled' : ''}>
+              水槽${t}<span>${n} / ${TANK_LIMIT}${here ? '（いまここ）' : full ? ' 満員' : ''}</span>
+            </button>`;
+  }).join('');
+  ov.innerHTML = `<div class="dlg">
+    <h3>${escapeHtml(f.name || '(なまえなし)')} の引っ越し先</h3>
+    <p class="hint">大きさ・すばやさ・食べた数・特殊能力はそのまま移ります。</p>
+    <div class="tklist">${btns}</div>
+    <div class="dlgbtns"><button class="btn" id="mvCancel">やめる</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.onclick = e => { if (e.target === ov) close(); };
+  ov.querySelector('#mvCancel').onclick = close;
+  ov.querySelectorAll('.tk:not([disabled])').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    await moveFish(id, f, Number(b.dataset.t));
+    close();
+  });
+}
 
 /* ---------- エサ ---------- */
 const baitMsg = document.getElementById('baitMsg');
