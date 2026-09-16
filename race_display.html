@@ -1,7 +1,11 @@
 <!DOCTYPE html>
 <html lang="ja">
-<head><meta charset="utf-8"><title>水族館レース</title><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}canvas{display:block;width:100%;height:100%}</style></head>
-<body><canvas id="cv"></canvas>
+<head><meta charset="utf-8"><title>水族館レース</title><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}canvas{display:block;width:100%;height:100%}
+#cutin{position:fixed;right:-46%;top:50%;transform:translateY(-50%);height:62%;width:auto;
+  pointer-events:none;opacity:0;transition:right .38s cubic-bezier(.2,.9,.3,1),opacity .3s;
+  filter:drop-shadow(0 10px 30px rgba(0,0,0,.45))}
+#cutin.show{right:2%;opacity:1}</style></head>
+<body><canvas id="cv"></canvas><img id="cutin" alt="">
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getDatabase, ref, onValue, update, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
@@ -11,7 +15,7 @@ let W=0,H=0;function resize(){W=cv.width=Math.max(1,innerWidth);H=cv.height=Math
 
 /* ---------- 背景・前景の素材 ---------- */
 const ASSET_DIR='assets/';
-const ART={bg:null,weed:[],rock:[],pebble:[],bubble:[],stream:[],appleRed:null,appleGold:null};
+const ART={bg:null,weed:[],rock:[],pebble:[],bubble:[],stream:[],appleRed:null,appleGold:null,birdon:null};
 const BAITS=[];   // 管理画面で登録したエサ画像
 // 管理画面に何も登録されていないときに使う標準のエサ
 const DEFAULT_BAITS=(()=>{
@@ -34,6 +38,7 @@ let artReady=false;
     const load=src=>new Promise(res=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>res(null);i.src=src});
     ART.bg=await load(ASSET_DIR+'bg_water.jpg');
     ART.appleRed=await load(ASSET_DIR+'apple_red.png');
+    ART.birdon=await load(ASSET_DIR+'birdon.png');
     ART.appleGold=await load(ASSET_DIR+'apple_gold.png');
     for(const k of ['weed','rock','pebble','bubble','stream']){
       ART[k]=(await Promise.all((man[k]||[]).map(o=>load(ASSET_DIR+o.f)))).filter(Boolean);
@@ -321,6 +326,8 @@ const GOLD_DURATION=9;        // ラストの金のりんごの効果が続く�
 const MID_GOLD_DURATION=3.0;  // 中間の金のりんご（複数同時）の効果が続く秒数
 const FISH_AT_LEFT=1000;      // 1位の残りがこの距離になったら釣り上げ(m)
 const FISH_HOLD=10;           // 釣られている秒数
+const BIRD_AT=1500;           // ポッポインが起きる地点(m)
+const BIRD_CHANCE=TEST_MODE?1:0.10;  // 発生確率
 const splashes=[];
 function goldBurst(x,y){
   const k=H/900;
@@ -394,6 +401,83 @@ function drawDropping(now){
     ctx.restore();
   }
 }
+// カットイン動画（透過WebP）をかぶせる
+const cutinEl=document.getElementById('cutin');
+let cutinTimer=null;
+function playCutin(){
+  clearTimeout(cutinTimer);
+  cutinEl.classList.remove('show');
+  // src を入れ直してアニメを最初から再生させる
+  cutinEl.src=ASSET_DIR+'birdon.webp?'+Date.now();
+  requestAnimationFrame(()=>requestAnimationFrame(()=>cutinEl.classList.add('show')));
+  cutinTimer=setTimeout(()=>{
+    cutinEl.classList.remove('show');
+    setTimeout(()=>{cutinEl.removeAttribute('src')},500);
+  },3600);
+}
+
+// ポッポイン：鳩が横切って順位を入れ替える
+function drawBirdon(now){
+  const bs=race&&race.birdSwap;
+  if(!bs)return;
+  const u=Math.min(1,bs.life/3.6);
+  const im=ART.birdon;
+
+  // 入れ替えの瞬間に光る
+  if(bs.life>1.4&&bs.life<2.0){
+    ctx.save();
+    ctx.globalAlpha=(1-Math.abs(bs.life-1.7)/0.3)*.5;
+    ctx.fillStyle='#ffffff';ctx.fillRect(0,0,W,H);
+    ctx.restore();
+  }
+
+  if(im&&im.width){
+    // 左から右へ、ゆるく波打ちながら横切る
+    const p=Math.min(1,bs.life/3.0);
+    const hh=H*.20,sc=hh/im.height,w=im.width*sc;
+    const x=-w+ (W+w*2)*p;
+    const y=H*.30+Math.sin(p*Math.PI*2.4)*H*.10;
+    ctx.save();
+    ctx.globalAlpha=Math.min(1,(1-p)*3);
+    ctx.translate(x,y);
+    ctx.rotate(Math.sin(p*Math.PI*2.4)*.12);
+    ctx.scale(-1,1);                       // 進行方向に向ける
+    ctx.drawImage(im,-w/2,-hh/2,w,hh);
+    ctx.restore();
+    // 羽根が舞う
+    ctx.save();
+    for(let i=0;i<7;i++){
+      const q=(p*2+i*.14)%1;
+      ctx.globalAlpha=(1-q)*.5*Math.min(1,(1-p)*3);
+      ctx.fillStyle='#e8eef5';
+      const fx2=x-w*.4-q*W*.12, fy2=y+q*H*.16+Math.sin(q*9+i)*10;
+      ctx.beginPath();ctx.ellipse(fx2,fy2,9,4,q*5+i,0,Math.PI*2);ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // 文字
+  if(bs.life<3.0){
+    const a=bs.life<.2?bs.life/.2:(bs.life>2.4?(3.0-bs.life)/.6:1);
+    ctx.save();
+    ctx.globalAlpha=Math.max(0,Math.min(1,a));
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.font=`900 ${Math.min(W*.062,H*.082)}px sans-serif`;
+    ctx.lineWidth=Math.max(8,H*.014);ctx.strokeStyle='rgba(20,30,50,.9)';
+    ctx.fillStyle='#ffe27a';
+    ctx.strokeText('ポッポイン！',W/2,H*.13);
+    ctx.fillText('ポッポイン！',W/2,H*.13);
+    if(bs.life>1.5){
+      ctx.font=`800 ${Math.min(W*.030,H*.040)}px sans-serif`;
+      ctx.lineWidth=Math.max(5,H*.008);
+      ctx.fillStyle='#ffffff';
+      ctx.strokeText('じゅんいが シャッフルされた！',W/2,H*.205);
+      ctx.fillText('じゅんいが シャッフルされた！',W/2,H*.205);
+    }
+    ctx.restore();
+  }
+}
+
 function drawGoldApple(now){
   if(!race||!ART.appleGold)return;
   for(const ga of race.goldApples){
@@ -543,6 +627,41 @@ function updateRace(dt,now){if(!race||race.staged||race.finished)return;if(now<r
       }
     }
   }
+  // 1500m地点：ポッポインが来て順位を入れ替える
+  if(!race.birdTriggered){
+    const bgoal=COURSE_SCREENS-.45;
+    const bl=Math.max(...race.racers.map(r=>r.world));
+    if(bl>=bgoal*(BIRD_AT/COURSE_METERS)){
+      race.birdTriggered=true;
+      const rrB=rnd(hash(race.nonce,8823));
+      const act=race.racers.filter(r=>!r.finished&&!r.fishing&&!r.dropping);
+      if(rrB()<BIRD_CHANCE && act.length>=2){
+        // 位置をシャッフルして入れ替える
+        const spots=act.map(r=>r.world).sort((a,b)=>b-a);
+        // 元と違う並びになるまで引き直す
+        let order=act.slice();
+        for(let tryN=0;tryN<12;tryN++){
+          order=act.slice();
+          for(let i=order.length-1;i>0;i--){const j=Math.floor(rrB()*(i+1));[order[i],order[j]]=[order[j],order[i]]}
+          if(!order.every((r,i)=>r===act[i]))break;
+        }
+        race.birdSwap={order,spots,life:0,applied:false};
+        playCutin();
+      }
+    }
+  }
+
+  // ポッポインの進行
+  if(race.birdSwap){
+    const bs=race.birdSwap;
+    bs.life+=dt;
+    if(!bs.applied && bs.life>=1.5){
+      bs.applied=true;
+      bs.order.forEach((r,i)=>{ r.world=bs.spots[i]; r.pause=Math.max(r.pause,.35); });
+    }
+    if(bs.life>3.6)race.birdSwap=null;
+  }
+
   // 終盤：1位が独走していたら2位以下の全員に金のりんごが出る（タイマンはのこり1000m、それ以外はのこり1200m）
   if(!race.midGoldTriggered){
     const goal=COURSE_SCREENS-.45;
@@ -721,5 +840,5 @@ function drawIdle(){ctx.clearRect(0,0,W,H);
   if(artReady&&ART.bg){const im=ART.bg,sc=H/im.height,tw=im.width*sc;for(let x=0;x<W+1;x+=tw)ctx.drawImage(im,x,0,tw+1,H);ctx.fillStyle='rgba(2,25,40,.35)';ctx.fillRect(0,0,W,H);}
   else{const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#0b7898');g.addColorStop(1,'#032737');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);}ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='rgba(255,255,255,.8)';ctx.font=`800 ${Math.max(24,H*.045)}px sans-serif`;ctx.fillText('レース管理画面で出走準備してください',W/2,H*.52)}
 
-function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;if(race){updateRace(dt,now);drawWaterBase(now);drawParallax();drawCourseObjects();drawObstacles();drawRaceFoods();drawGoldApple(now);drawBubbles(now);drawSpeedStreaks(now);race.racers.forEach(r=>drawFish(r,now));drawFishing(now);drawMissedHook(now,dt);drawDropping(now);drawSplashes(dt);drawWaiting();drawCountdown(now);drawHud(now);drawResults()}else drawIdle();requestAnimationFrame(loop)}requestAnimationFrame(loop);
+function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;if(race){updateRace(dt,now);drawWaterBase(now);drawParallax();drawCourseObjects();drawObstacles();drawRaceFoods();drawGoldApple(now);drawBubbles(now);drawSpeedStreaks(now);race.racers.forEach(r=>drawFish(r,now));drawFishing(now);drawMissedHook(now,dt);drawDropping(now);drawBirdon(now);drawSplashes(dt);drawWaiting();drawCountdown(now);drawHud(now);drawResults()}else drawIdle();requestAnimationFrame(loop)}requestAnimationFrame(loop);
 </script></body></html>
