@@ -23,8 +23,10 @@ onValue(ref(db,'aquarium/baits'),s=>{
   BAITS.length=0;
   const v=s.val()||{};
   for(const k of Object.keys(v)){
-    if(!v[k]||!v[k].img)continue;
-    const im=new Image();im.src=v[k].img;BAITS.push(im);
+    const b=v[k];
+    if(!b||!b.img)continue;
+    if(b.use==='tank')continue;          // 「水族館だけ」のエサはコースに出さない
+    const im=new Image();im.src=b.img;BAITS.push(im);
   }
 });
 let artReady=false;

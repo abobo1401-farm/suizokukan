@@ -246,11 +246,27 @@ async function switchTank(tank){
   }
   ready = true;
   offFish.push(onChildAdded(fishRef, s => addFish(s.key, s.val())));
-  offFish.push(onValue(fishRef, s => {              // grow の変化を反映
+  offFish.push(onValue(fishRef, s => {   // 管理画面での変更をその場で反映
     const v = s.val() || {};
     for (const [id, d] of Object.entries(v)){
       const f = fishes.get(id);
       if (!f) continue;
+
+      // 名前・向き
+      if (d.name != null) f.name = d.name;
+      const fc = d.face ?? -1;
+      if (fc !== f.face) f.face = fc;
+
+      // 食べた数・特殊能力
+      f.meals = d.meals ?? 0;
+      const mm = fishMeta.get(id);
+      if (mm) mm.abil = abilitiesOf(id, d.abilities);
+
+      // すばやさ
+      const sp = d.spd ?? 1;
+      if (Math.abs(sp - f.spd) > 0.001){ f.speed *= sp / f.spd; f.spd = sp; }
+
+      // おおきさ
       const g = d.grow ?? 1;
       if (Math.abs(g - f.grow) < 0.001) continue;
       const r = g / f.grow;
@@ -460,7 +476,8 @@ let gainMsg = null;      // 成長結果の表示
 let learnMsg = null;     // 能力を覚えたときの表示
 
 function randomBait(){
-  const keys = Object.keys(customBaits);
+  // 「レースだけ」のエサは水族館では使わない
+  const keys = Object.keys(customBaits).filter(k => customBaits[k] && customBaits[k].use !== 'race');
   if (keys.length){
     const k = keys[Math.floor(Math.random() * keys.length)];
     return { type: k, name: customBaits[k].name, img: customBaits[k].img };

@@ -53,11 +53,20 @@
     display:flex;flex-direction:column;align-items:center;gap:8px;
   }
   .card .thumb{
+    position:relative;
     width:100%;height:88px;display:flex;align-items:center;justify-content:center;
     background:repeating-conic-gradient(rgba(255,255,255,.06) 0% 25%,transparent 0% 50%) 50%/12px 12px;
     border-radius:9px;overflow:hidden;
   }
   .card img{max-width:100%;max-height:88px}
+  .card img.flipx{transform:scaleX(-1)}
+  .card .thumb .flip{
+    position:absolute;right:4px;bottom:4px;width:30px;height:30px;padding:0;
+    border-radius:50%;font-size:15px;line-height:1;
+    background:rgba(4,32,47,.72);color:var(--foam);border:1px solid rgba(143,227,214,.5);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .card .thumb .flip:hover{background:var(--foam);color:var(--ink)}
   .card .nm{font-size:13px;font-weight:700;text-align:center;word-break:break-all}
   .card .tm{font-size:10px;opacity:.5}
   .card button{
@@ -79,6 +88,15 @@
   .baitbtn:hover{border-color:var(--foam)}
   .baitbtn img{height:44px;width:auto}
   .baitbtn em{font-style:normal;font-size:10px;font-weight:500;opacity:.6}
+  .baitbtn .use{
+    width:100%;border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:4px 6px;
+    font:700 10px inherit;cursor:pointer;background:rgba(255,255,255,.1);color:var(--sand);
+  }
+  .baitbtn .use.both{background:rgba(143,227,214,.25);border-color:rgba(143,227,214,.6)}
+  .baitbtn .use.tank{background:rgba(120,180,255,.22);border-color:rgba(120,180,255,.55)}
+  .baitbtn .use.race{background:rgba(255,216,107,.22);border-color:rgba(255,216,107,.55)}
+  .baitbtn.offTank{opacity:.5}
+  .baitbtn.offTank img{filter:grayscale(.6)}
   .baitbtn#baitRandom,.baitbtn#baitStop{font-size:11px;line-height:1.45;justify-content:center}
   #baitMsg{font-size:12px;margin-top:10px;min-height:16px;color:var(--foam)}
   .baitbtn.on{border-color:var(--foam);background:rgba(143,227,214,.15)}
@@ -111,6 +129,7 @@
   .card .nm.editable{cursor:pointer;border-radius:6px;padding:2px 4px;transition:background .12s}
   .card .nm.editable:hover{background:rgba(143,227,214,.2);text-decoration:underline}
   .renameRow{display:flex;align-items:center;gap:12px}
+  .renameRow img.flipx{transform:scaleX(-1)}
   .renameRow img{width:64px;height:64px;object-fit:contain;flex:0 0 auto;
     background:repeating-conic-gradient(rgba(255,255,255,.06) 0% 25%,transparent 0% 50%) 50%/10px 10px;
     border-radius:10px}
@@ -139,7 +158,8 @@
 </head>
 <body>
 <h1>水族館 管理</h1>
-<p class="sub">水槽は5個。1水槽あたり50匹まで（合計250匹）<br>水槽のタブを押すとOBSの表示も切り替わります</p>
+<p class="sub">水槽は5個。1水槽あたり50匹まで（合計250匹）<br>水槽のタブを押すとOBSの表示も切り替わります<br>
+サムネイルの魚が<b>左を向いていれば向きは正しい</b>状態です。逆なら ⇄ を押してください。</p>
 
 <div id="warn" class="warn" style="display:none"></div>
 <div class="tanks" id="tanks"></div>
@@ -282,7 +302,10 @@ function loadFish(){
       card.className = 'card';
       const d = f.ts ? new Date(f.ts) : null;
       card.innerHTML = `
-        <div class="thumb"><img src="${f.img}" alt=""></div>
+        <div class="thumb">
+          <img src="${f.img}" alt="" class="${Number(f.face ?? -1) === 1 ? 'flipx' : ''}">
+          <button class="flip" type="button" title="左右の向きを反転する">⇄</button>
+        </div>
         <div class="nm editable" title="クリックで名前を変更">${escapeHtml(f.name || '(なまえなし)')}</div>
         ${statLine(f)}
         <div class="tm">${d ? `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` : ''}</div>
@@ -305,6 +328,14 @@ function loadFish(){
         dropBait(b.key, b.name, b.img);
       };
       card.querySelector('.nm').onclick = () => openRenameDialog(id, f);
+      card.querySelector('.flip').onclick = async ev => {
+        ev.stopPropagation();
+        const next = Number(f.face ?? -1) === 1 ? -1 : 1;
+        const img = card.querySelector('.thumb img');
+        img.classList.toggle('flipx', next === 1);      // 先に見た目を変える
+        f.face = next;
+        await set(ref(db, `aquarium/tanks/${current}/fish/${id}/face`), next);
+      };
       card.querySelector('.mv').onclick = () => openMoveDialog(id, f);
       const rst = card.querySelector('.rst');
       if (rst) rst.onclick = async () => {
@@ -455,9 +486,15 @@ async function dropBait(type, label, img){
   setTimeout(() => { baitMsg.textContent = ''; }, 4000);
 }
 
-// 登録済みのエサからランダムに1つ選ぶ
+// エサの使い道（both=両方 / tank=水族館だけ / race=レースだけ）
+const USE_LABEL = { both:'両方に出る', tank:'水族館だけ', race:'レースだけ' };
+const USE_NEXT  = { both:'tank', tank:'race', race:'both' };
+const useOf = v => (v && USE_LABEL[v.use]) ? v.use : 'both';
+const usableInTank = v => useOf(v) !== 'race';
+
+// 登録済みのエサからランダムに1つ選ぶ（水族館で使えるものだけ）
 function randomBaitKey(){
-  const keys = Object.keys(customBaits);
+  const keys = Object.keys(customBaits).filter(k => usableInTank(customBaits[k]));
   if (keys.length){
     const k = keys[Math.floor(Math.random() * keys.length)];
     return { key: k, name: customBaits[k].name, img: customBaits[k].img };
@@ -513,7 +550,7 @@ document.getElementById('baitFile').onchange = async e => {
 
     const name = (prompt('エサの名前は？', file.name.replace(/\.[^.]+$/, '')) || 'エサ').slice(0, 8);
     const key = 'c' + Date.now();
-    await set(ref(db, `aquarium/baits/${key}`), { name, img: dataUrl, ts: Date.now() });
+    await set(ref(db, `aquarium/baits/${key}`), { name, img: dataUrl, ts: Date.now(), use: 'both' });
     baitMsg.textContent = `「${name}」を登録しました`;
     setTimeout(() => { baitMsg.textContent = ''; }, 4000);
   }catch(err){
@@ -532,13 +569,21 @@ onValue(ref(db, 'aquarium/baits'), s => {
     const b = document.createElement('button');
     b.className = 'baitbtn custom';
     b.dataset.bait = key;
+    const use = useOf(v);
     b.innerHTML = `<img src="${v.img}" alt=""><span>${escapeHtml(v.name)}</span>
-                   <button class="del">削除</button>`;
+                   <button class="use ${use}" type="button"
+                     title="クリックで切り替え">${USE_LABEL[use]}</button>
+                   <button class="del" type="button">削除</button>`;
+    b.querySelector('.use').onclick = async ev => {
+      ev.stopPropagation();
+      await set(ref(db, `aquarium/baits/${key}/use`), USE_NEXT[useOf(v)]);
+    };
     b.querySelector('.del').onclick = async ev => {
       ev.stopPropagation();
       if (!confirm(`エサ「${v.name}」を削除しますか？`)) return;
       await remove(ref(db, `aquarium/baits/${key}`));
     };
+    if (use === 'race') b.classList.add('offTank');
     box.insertBefore(b, stop);
   }
   bindBaitButtons();
