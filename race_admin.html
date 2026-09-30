@@ -29,7 +29,7 @@
 </head>
 <body>
 <h1>🏁 水族館レース 管理</h1>
-<p class="sub">特殊能力は水族館で金のりんごを食べると覚えます。ここからも直接つけ外しできます。出走数を選んでからお魚を選抜します。2匹のタイマンから5匹まで対応。出走セットするとOBS側でスタート位置に待機し、カウントダウン後に長いスクロールコースを約1分30秒で競争します。</p>
+<p class="sub">特殊能力は水族館で金のりんごを食べると覚えます。ここからも直接つけ外しできます。出走数を選んでからお魚を選抜します。2匹のタイマンから6匹まで対応。出走セットするとOBS側でスタート位置に待機し、カウントダウン後に長いスクロールコースを約1分30秒で競争します。</p>
 
 <div class="panel">
   <h2>出走メンバー <span id="count">0 / 5</span></h2>
@@ -82,7 +82,7 @@ function abilitiesOf(f){
 let MAX=5; let allFish=[],selected=[],filterTank='all';
 function renderSizeTabs(){
   const box=$('sizeTabs');box.innerHTML='';
-  [[2,'タイマン'],[3,'3匹'],[4,'4匹'],[5,'5匹']].forEach(([n,label])=>{
+  [[2,'タイマン'],[3,'3匹'],[4,'4匹'],[5,'5匹'],[6,'6匹']].forEach(([n,label])=>{
     const b=document.createElement('button');
     b.className='tab'+(MAX===n?' on':'');
     b.textContent=`${label}`;
@@ -104,7 +104,7 @@ async function loadAllFish(){
 function renderTabs(){const counts={all:allFish.length};for(let t=1;t<=5;t++)counts[t]=allFish.filter(f=>f.tank===t).length;$('tabs').innerHTML='';[['all','すべて'],[1,'水槽1'],[2,'水槽2'],[3,'水槽3'],[4,'水槽4'],[5,'水槽5']].forEach(([v,label])=>{const b=document.createElement('button');b.className='tab'+(String(filterTank)===String(v)?' on':'');b.textContent=`${label} (${counts[v]||0})`;b.onclick=()=>{filterTank=v;renderTabs();renderGrid()};$('tabs').appendChild(b)});}
 function renderSelected(){
   const sel=$('selected');
-  sel.style.gridTemplateColumns=`repeat(${Math.min(MAX,5)},minmax(0,1fr))`;
+  sel.style.gridTemplateColumns=`repeat(${MAX===6?3:Math.min(MAX,5)},minmax(0,1fr))`;
   sel.innerHTML='';
   for(let i=0;i<MAX;i++){const f=selected[i],d=document.createElement('div');d.className='slot'+(f?' filled':'');if(f){const ab=abilitiesOf(f);
       d.innerHTML=`<div class="lane">${i+1}コース</div><img src="${f.img}" alt=""><div class="nm">${esc(f.name||'(なまえなし)')}</div>`

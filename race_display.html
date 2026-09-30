@@ -44,7 +44,7 @@ let artReady=false;
   }catch(e){console.warn('素材を読み込めませんでした',e)}
 })();
 
-const MAX_RACERS=5, MIN_RACERS=2;
+const MAX_RACERS=6, MIN_RACERS=2;
 const COURSE_METERS=3000;   // コースの距離（表示用）
 /* ---------- 特殊能力 ---------- */
 const ABILITIES={
@@ -132,7 +132,7 @@ function makeRace(v,entrants,staged){
 
 function sizeMul(e){const base={s:.72,m:1,l:1.16,xl:1.30}[e.size]||1;const g=Math.max(.70,Math.min(1.52,1+(Number(e.grow||1)-1)*.42));return base*g}
 function laneY(i){
-  const n=race?race.racers.length:5;
+  const n=race?race.racers.length:MAX_RACERS;
   const top=H*.20,bottom=H*.82;
   if(n<=1)return (top+bottom)/2;
   // 2〜3匹のときは間延びしないよう中央寄せに
